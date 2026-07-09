@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "invoice-agent"
+version = "0.1.0"
+description = "Analyze, validate, rename, and summarize Chinese invoice files."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Invoice Agent Maintainers" }]
+dependencies = []
+
+[project.optional-dependencies]
+pdf = ["pypdf>=4.0.0"]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+invoice-agent = "invoice_agent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["invoice_agent*"]
