@@ -24,6 +24,8 @@ const C = {
   to: "\u5230",
   ok: "\u672a\u53d1\u73b0\u660e\u663e\u95ee\u9898",
   pasteFile: "\u7c98\u8d34\u6587\u672c.md",
+  pdfNoText: "PDF \u672a\u63d0\u53d6\u5230\u53ef\u5206\u6790\u6587\u5b57\uff0c\u53ef\u80fd\u662f\u626b\u63cf\u56fe\u7247\u578b PDF\uff0c\u8bf7\u5148 OCR \u540e\u518d\u4e0a\u4f20\u3002",
+  pdfLoadError: "PDF \u89e3\u6790\u7ec4\u4ef6\u672a\u52a0\u8f7d\uff0c\u8bf7\u5237\u65b0\u9875\u9762\u6216\u68c0\u67e5\u7f51\u7edc\u540e\u91cd\u8bd5\u3002",
 };
 
 const categoryRules = [
@@ -85,10 +87,55 @@ exportJson.addEventListener("click", () => {
 
 async function handleFiles(files) {
   for (const file of files) {
-    const text = await file.text();
-    records.push(analyzeInvoice(file.name, text));
+    try {
+      const text = await extractFileText(file);
+      if (text.trim()) {
+        records.push(analyzeInvoice(file.name, text));
+      } else {
+        records.push(buildFileErrorRecord(file.name, C.pdfNoText));
+      }
+    } catch (error) {
+      records.push(buildFileErrorRecord(file.name, error.message || String(error)));
+    }
   }
   render();
+}
+
+async function extractFileText(file) {
+  const name = file.name.toLowerCase();
+  if (file.type === "application/pdf" || name.endsWith(".pdf")) {
+    return extractPdfText(file);
+  }
+  return file.text();
+}
+
+async function extractPdfText(file) {
+  if (!window.pdfjsLib) throw new Error(C.pdfLoadError);
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const buffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
+  const pages = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(content.items.map(item => item.str || "").join(" "));
+  }
+  return pages.join("\n").replace(/\s+/g, " ").trim();
+}
+
+function buildFileErrorRecord(fileName, message) {
+  return {
+    fileName,
+    suggestedName: fileName,
+    category: C.unknown,
+    expenseType: C.uncategorized,
+    amount: null,
+    personName: "",
+    invoiceDate: "",
+    invoiceNumber: "",
+    tripLegs: [],
+    issues: [{ level: "error", message }],
+  };
 }
 
 function analyzeInvoice(fileName, text) {

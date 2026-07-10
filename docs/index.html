@@ -20,10 +20,10 @@
       <div class="upload-panel">
         <label class="dropzone" for="fileInput" id="dropzone">
           <span class="upload-icon">+</span>
-          <strong>&#19978;&#20256;&#21457;&#31080;&#25991;&#26412;&#25991;&#20214;</strong>
-          <span>&#25903;&#25345; .txt / .md&#65307;&#22270;&#29255;&#25110; PDF &#35831;&#20808; OCR &#25104;&#25991;&#23383;</span>
+          <strong>&#19978;&#20256;&#21457;&#31080;&#25991;&#20214;</strong>
+          <span>&#25903;&#25345; .pdf / .txt / .md&#65307;&#25195;&#25551;&#22270;&#29255;&#22411; PDF &#38656;&#35201; OCR</span>
         </label>
-        <input id="fileInput" type="file" multiple accept=".txt,.md,text/plain,text/markdown">
+        <input id="fileInput" type="file" multiple accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown">
         <div class="manual-entry">
           <div class="field-head">
             <label for="manualText">&#31896;&#36148;&#21457;&#31080;&#20869;&#23481;</label>
@@ -53,6 +53,7 @@
     </section>
   </main>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
