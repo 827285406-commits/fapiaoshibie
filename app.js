@@ -34,11 +34,16 @@ const C = {
 
 const categoryRules = [
   [/\u673a\u7968|\u822a\u7a7a|\u822a\u73ed|\u767b\u673a\u724c|air|flight|\u673a\u573a|\u56fd\u5185\u822a\u7a7a|\u822a\u7a7a\u8fd0\u8f93|\u673a\u573a\u5efa\u8bbe\u8d39|\u71c3\u6cb9\u9644\u52a0|\u822a\u6bb5|\u822a\u73ed\u53f7/i, C.flight, C.travel],
-  [/\u706b\u8f66|\u9ad8\u94c1|\u52a8\u8f66|\u94c1\u8def|\u8f66\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u5217\u8f66|\u8f66\u6b21|\u4e00\u7b49\u5ea7|\u4e8c\u7b49\u5ea7|\u5546\u52a1\u5ea7|\b[GDCKZ]\d{2,5}\b/i, C.train, C.travel],
+  [/\u706b\u8f66|\u9ad8\u94c1|\u52a8\u8f66|\u94c1\u8def|\u8f66\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u5217\u8f66|\u8f66\u6b21|\u4e00\u7b49\u5ea7|\u4e8c\u7b49\u5ea7|\u5546\u52a1\u5ea7|\u897f\u5b89\u5317|\u7ef5\u9633|\b[GDCKZ]\d{2,5}\b/i, C.train, C.travel],
   [/\u51fa\u79df|\u7f51\u7ea6\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u5ba2\u8fd0|\u6c7d\u8f66\u7968|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f|\u5ba2\u8f66|ETC/i, C.traffic, C.travel],
   [/\u9152\u5e97|\u4f4f\u5bbf|\u5bbe\u9986|\u65c5\u5e97|\u623f\u8d39|\u4f4f\u5bbf\u8d39/i, C.hotel, C.travel],
   [/\u9910\u996e|\u9910\u8d39|\u996d\u5e97|\u9910\u5385|\u98df\u54c1|\u996e\u54c1/i, C.meal, C.meal],
   [/\u529e\u516c|\u8017\u6750|\u6587\u5177|\u6253\u5370|\u5feb\u9012/i, C.office, C.office],
+];
+
+const datePatterns = [
+  /(\d{4}\s*[\u5e74\/-]\s*\d{1,2}\s*[\u6708\/-]\s*\d{1,2}\s*[\u65e5\u53f7]?)/,
+  /(\d{1,2}\s*\u6708\s*\d{1,2}\s*[\u65e5\u53f7])/,
 ];
 
 const fileInput = document.querySelector("#fileInput");
@@ -131,7 +136,7 @@ function isPdfTextSufficient(text) {
   const normalized = normalizeInvoiceText(text);
   const [, expenseType] = detectCategory(normalized);
   const hasAmount = detectAmount(normalized) != null;
-  const hasDate = Boolean(normalizeDate(detectFirst([/(\d{4}\s*[年\/-]\s*\d{1,2}\s*[月\/-]\s*\d{1,2}\s*日?)/, /(\d{1,2}\s*月\s*\d{1,2}\s*日)/], normalized)));
+  const hasDate = Boolean(detectInvoiceDate(normalized));
   const hasRoute = expenseType !== C.travel || detectTripLegs(normalized).length > 0;
   return hasAmount && hasDate && hasRoute;
 }
@@ -216,7 +221,7 @@ function analyzeInvoice(fileName, text) {
   const amount = detectAmount(normalizedText);
   const itemName = detectItemName(normalizedText);
   const personName = detectPersonName(normalizedText);
-  const invoiceDate = normalizeDate(detectFirst([/(\d{4}\s*[\u5e74\/-]\s*\d{1,2}\s*[\u6708\/-]\s*\d{1,2}\s*\u65e5?)/, /(\d{1,2}\s*\u6708\s*\d{1,2}\s*\u65e5)/], normalizedText));
+  const invoiceDate = detectInvoiceDate(normalizedText);
   const invoiceNumber = detectFirst([/(?:\u53d1\u7968\u53f7\u7801|\u7968\u636e\u53f7\u7801|\u7535\u5b50\u5ba2\u7968\u53f7\u7801|No\.?|NO\.?)[:\uff1a\s]*([A-Z0-9-]{6,32})/i], normalizedText);
   const tripLegs = detectTripLegs(normalizedText).map(leg => ({ ...leg, transport: leg.transport || (expenseType === C.travel ? category : "") }));
   const issues = validateInvoice({ text: normalizedText, category, expenseType, amount, invoiceDate, tripLegs });
@@ -242,8 +247,12 @@ function normalizeInvoiceText(text) {
     .replace(/[ 	]+/g, " ");
 }
 
+function detectInvoiceDate(text) {
+  return normalizeDate(detectFirst(datePatterns, text));
+}
+
 function normalizeDate(value) {
-  return value ? value.replace(/\s+/g, "") : "";
+  return value ? value.replace(/\s+/g, "").replace("号", "日") : "";
 }
 
 function detectItemName(text) {
@@ -344,18 +353,33 @@ function detectTripLegs(text) {
 }
 
 function detectTrainStationRoute(text) {
-  const match = text.match(/([\u4e00-\u9fa5]{2,12})\s*\u7ad9[\s\S]{0,120}\b[GDCKZ]\d{2,5}\b[\s\S]{0,120}([\u4e00-\u9fa5]{2,12})\s*\u7ad9/);
-  if (!match) return null;
+  const stationMatch = text.match(/([\u4e00-\u9fa5]{2,12})\s*\u7ad9[\s\S]{0,120}\b[GDCKZ]\d{2,5}\b[\s\S]{0,120}([\u4e00-\u9fa5]{2,12})\s*\u7ad9/);
+  if (stationMatch) return buildTrainLeg(text, stationMatch[1], stationMatch[2]);
+
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    const lineMatch = line.match(/([\u4e00-\u9fa5]{2,10}(?:\u5317|\u5357|\u4e1c|\u897f)?)(?:\u7ad9)?\s+\b[GDCKZ]\d{2,5}\b\s+([\u4e00-\u9fa5]{2,10}(?:\u5317|\u5357|\u4e1c|\u897f)?)(?:\u7ad9)?/i);
+    if (lineMatch) return buildTrainLeg(text, lineMatch[1], lineMatch[2]);
+  }
+
+  if (/\u897f\u5b89(?:\u5317)?/.test(text) && /\u7ef5\u9633/.test(text)) return buildTrainLeg(text, "\u897f\u5b89\u5317", "\u7ef5\u9633");
+  return null;
+}
+
+function buildTrainLeg(text, origin, destination) {
   return {
-    date: normalizeDate(detectFirst([/(\d{4}\s*[\u5e74\/-]\s*\d{1,2}\s*[\u6708\/-]\s*\d{1,2}\s*\u65e5?)/, /(\d{1,2}\s*\u6708\s*\d{1,2}\s*\u65e5)/], text)),
-    origin: cleanStationName(match[1]),
-    destination: cleanStationName(match[2]),
+    date: detectInvoiceDate(text),
+    origin: cleanStationName(origin),
+    destination: cleanStationName(destination),
     transport: C.train,
   };
 }
 
 function cleanStationName(value) {
-  return value.replace(/^(?:\u7535\u5b50\u53d1\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u53d1\u7968\u53f7\u7801)+/, "").trim();
+  return value
+    .replace(/^(?:\u7535\u5b50\u53d1\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u53d1\u7968\u53f7\u7801)+/, "")
+    .replace(/\u7ad9$/, "")
+    .trim();
 }
 
 function detectFromToRoute(text) {
@@ -363,7 +387,7 @@ function detectFromToRoute(text) {
   const destination = detectFirst([/(?:^|\n|\s)(?:\u81f3|\u5230\u8fbe|\u76ee\u7684\u5730)[:\uff1a]?\s*([^\n]{2,80})/], text);
   if (!origin || !destination) return null;
   return {
-    date: normalizeDate(detectFirst([/(\d{4}\s*[\u5e74\/-]\s*\d{1,2}\s*[\u6708\/-]\s*\d{1,2}\s*\u65e5?)/, /(\d{1,2}\s*\u6708\s*\d{1,2}\s*\u65e5)/], text)),
+    date: detectInvoiceDate(text),
     origin: cleanPlace(origin),
     destination: cleanPlace(destination),
     transport: "",
