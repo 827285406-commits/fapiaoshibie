@@ -33,10 +33,10 @@ const C = {
 };
 
 const categoryRules = [
-  [/\u673a\u7968|\u822a\u7a7a|\u822a\u73ed|\u767b\u673a\u724c|air|flight|\u673a\u573a/i, C.flight, C.travel],
-  [/\u706b\u8f66|\u9ad8\u94c1|\u52a8\u8f66|\u94c1\u8def|\u8f66\u7968/i, C.train, C.travel],
+  [/\u673a\u7968|\u822a\u7a7a|\u822a\u73ed|\u767b\u673a\u724c|air|flight|\u673a\u573a|\u56fd\u5185\u822a\u7a7a|\u822a\u7a7a\u8fd0\u8f93|\u673a\u573a\u5efa\u8bbe\u8d39|\u71c3\u6cb9\u9644\u52a0|\u822a\u6bb5|\u822a\u73ed\u53f7/i, C.flight, C.travel],
+  [/\u706b\u8f66|\u9ad8\u94c1|\u52a8\u8f66|\u94c1\u8def|\u8f66\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u5217\u8f66|\u8f66\u6b21|\u4e00\u7b49\u5ea7|\u4e8c\u7b49\u5ea7|\u5546\u52a1\u5ea7|\b[GDCKZ]\d{2,5}\b/i, C.train, C.travel],
   [/\u51fa\u79df|\u7f51\u7ea6\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u5ba2\u8fd0|\u6c7d\u8f66\u7968|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f|\u5ba2\u8f66|ETC/i, C.traffic, C.travel],
-  [/\u9152\u5e97|\u4f4f\u5bbf|\u5bbe\u9986|\u65c5\u5e97|\u623f\u8d39/i, C.hotel, C.travel],
+  [/\u9152\u5e97|\u4f4f\u5bbf|\u5bbe\u9986|\u65c5\u5e97|\u623f\u8d39|\u4f4f\u5bbf\u8d39/i, C.hotel, C.travel],
   [/\u9910\u996e|\u9910\u8d39|\u996d\u5e97|\u9910\u5385|\u98df\u54c1|\u996e\u54c1/i, C.meal, C.meal],
   [/\u529e\u516c|\u8017\u6750|\u6587\u5177|\u6253\u5370|\u5feb\u9012/i, C.office, C.office],
 ];
@@ -215,6 +215,7 @@ function detectCategory(text) {
 function normalizeInvoiceText(text) {
   return text
     .replace(/[\uffe5\u00a5]/g, "CNY")
+    .replace(/\b[Yy]\s*(?=\d)/g, "CNY")
     .replace(/[（]/g, "(")
     .replace(/[）]/g, ")")
     .replace(/[：]/g, ":")
@@ -239,16 +240,31 @@ function cleanItemName(value) {
 }
 
 function detectAmount(text) {
-  const patterns = [
-    /(?:\u4ef7\u7a0e\u5408\u8ba1|\u5408\u8ba1\u91d1\u989d|\u603b\u91d1\u989d|\u7968\u4ef7|\u91d1\u989d|\u8d39\u7528|\u5c0f\u8ba1|\u5c0f\u5199)[^0-9]{0,30}(?:CNY|\u4eba\u6c11\u5e01)?\s*([0-9]+(?:\s*\.\s*[0-9]{1,2})?)/gi,
-    /(?:CNY|\u4eba\u6c11\u5e01)\s*([0-9]+(?:\s*\.\s*[0-9]{1,2})?)/gi,
-    /([0-9]+(?:\s*\.\s*[0-9]{1,2})?)\s*\u5143/gi,
+  const compact = text.replace(/\s+/g, "");
+  const preferredPatterns = [
+    /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u5c0f\u5199|\u7968\u4ef7|\u5e94\u4ed8\u91d1\u989d|\u5b9e\u4ed8\u91d1\u989d|\u5408\u8ba1\u91d1\u989d|\u603b\u91d1\u989d)[^0-9A-Z]{0,120}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
+    /(?:\u4ef7\u7a0e\u5408\u8ba1|\u5408\u8ba1)[^0-9A-Z]{0,40}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
   ];
+  const preferred = collectAmounts(compact, preferredPatterns);
+  if (preferred.length) return Math.max(...preferred);
+
+  const fallbackPatterns = [
+    /(?:CNY|RMB|\u4eba\u6c11\u5e01)([0-9]+(?:\.[0-9]{1,2})?)/gi,
+    /([0-9]+(?:\.[0-9]{1,2})?)\u5143/gi,
+  ];
+  const fallback = collectAmounts(compact, fallbackPatterns);
+  return fallback.length ? Math.max(...fallback) : null;
+}
+
+function collectAmounts(text, patterns) {
   const values = [];
   for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) values.push(Number(match[1].replace(/\s+/g, "")));
+    for (const match of text.matchAll(pattern)) {
+      const value = Number(match[1]);
+      if (Number.isFinite(value) && value > 0) values.push(value);
+    }
   }
-  return values.length ? Math.max(...values) : null;
+  return values;
 }
 
 function detectPersonName(text) {
