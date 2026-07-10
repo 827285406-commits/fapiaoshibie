@@ -26,6 +26,10 @@ const C = {
   pasteFile: "\u7c98\u8d34\u6587\u672c.md",
   pdfNoText: "PDF \u672a\u63d0\u53d6\u5230\u53ef\u5206\u6790\u6587\u5b57\uff0c\u53ef\u80fd\u662f\u626b\u63cf\u56fe\u7247\u578b PDF\uff0c\u8bf7\u5148 OCR \u540e\u518d\u4e0a\u4f20\u3002",
   pdfLoadError: "PDF \u89e3\u6790\u7ec4\u4ef6\u672a\u52a0\u8f7d\uff0c\u8bf7\u5237\u65b0\u9875\u9762\u6216\u68c0\u67e5\u7f51\u7edc\u540e\u91cd\u8bd5\u3002",
+  ocrLoadError: "OCR \u7ec4\u4ef6\u672a\u52a0\u8f7d\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u540e\u5237\u65b0\u9875\u9762\u91cd\u8bd5\u3002",
+  ocrStarting: "\u672a\u63d0\u53d6\u5230 PDF \u5185\u7f6e\u6587\u5b57\uff0c\u6b63\u5728\u542f\u52a8 OCR \u8bc6\u522b\u626b\u63cf\u9875\u9762...",
+  ocrPage: "\u6b63\u5728 OCR \u8bc6\u522b PDF \u7b2c",
+  ocrPageSuffix: "\u9875...",
 };
 
 const categoryRules = [
@@ -114,13 +118,62 @@ async function extractPdfText(file) {
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   const buffer = await file.arrayBuffer();
   const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
+  const embeddedText = await extractPdfEmbeddedText(pdf);
+  if (embeddedText.length >= 20) return embeddedText;
+  tripSummary.textContent = C.ocrStarting;
+  return extractPdfOcrText(pdf);
+}
+
+async function extractPdfEmbeddedText(pdf) {
   const pages = [];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
     pages.push(content.items.map(item => item.str || "").join(" "));
   }
-  return pages.join("\n").replace(/\s+/g, " ").trim();
+  return pages.join("\n").replace(/[ \t]+/g, " ").trim();
+}
+
+async function extractPdfOcrText(pdf) {
+  if (!window.Tesseract) throw new Error(C.ocrLoadError);
+  const worker = await window.Tesseract.createWorker({
+    logger: message => updateOcrStatus(message),
+    langPath: "https://tessdata.projectnaptha.com/4.0.0",
+  });
+  const pages = [];
+  try {
+    await worker.loadLanguage("chi_sim+eng");
+    await worker.initialize("chi_sim+eng");
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      tripSummary.textContent = `${C.ocrPage}${pageNumber}/${pdf.numPages}${C.ocrPageSuffix}`;
+      const page = await pdf.getPage(pageNumber);
+      const canvas = await renderPdfPageToCanvas(page);
+      const result = await worker.recognize(canvas);
+      pages.push(result.data.text || "");
+      canvas.remove();
+    }
+  } finally {
+    await worker.terminate();
+  }
+  const text = pages.join("\n").replace(/[ \t]+/g, " ").trim();
+  if (!text) throw new Error(C.pdfNoText);
+  return text;
+}
+
+async function renderPdfPageToCanvas(page) {
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  await page.render({ canvasContext: context, viewport }).promise;
+  return canvas;
+}
+
+function updateOcrStatus(message) {
+  if (!message || !message.status) return;
+  const progress = typeof message.progress === "number" ? ` ${Math.round(message.progress * 100)}%` : "";
+  tripSummary.textContent = `${message.status}${progress}`;
 }
 
 function buildFileErrorRecord(fileName, message) {
