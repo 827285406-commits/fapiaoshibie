@@ -37,7 +37,7 @@ const categoryRules = [
   [/\u6ef4\u6ef4\u51fa\u884c|DIDI\s*TRAVEL|\u6ef4\u6ef4\u5feb\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u7f51\u7ea6\u8f66/i, C.taxi, C.travel],
   [/\u673a\u7968|\u822a\u7a7a|\u822a\u73ed|\u767b\u673a\u724c|air|flight|\u673a\u573a|\u56fd\u5185\u822a\u7a7a|\u822a\u7a7a\u8fd0\u8f93|\u673a\u573a\u5efa\u8bbe\u8d39|\u71c3\u6cb9\u9644\u52a0|\u822a\u6bb5|\u822a\u73ed\u53f7/i, C.flight, C.travel],
   [/\u706b\u8f66|\u9ad8\u94c1|\u52a8\u8f66|\u94c1\u8def|\u8f66\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u5217\u8f66|\u8f66\u6b21|\u4e00\u7b49\u5ea7|\u4e8c\u7b49\u5ea7|\u5546\u52a1\u5ea7|\u897f\u5b89\u5317|\u7ef5\u9633|\b[GDCKZ]\d{2,5}\b/i, C.train, C.travel],
-  [/\u51fa\u79df|\u5ba2\u8fd0|\u6c7d\u8f66\u7968|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f|\u5ba2\u8f66|ETC/i, C.traffic, C.travel],
+  [/\u51fa\u79df|\u5ba2\u8fd0|\u6c7d\u8f66\u7968|\u901a\u884c\u8d39|\u516c\u8def\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f|\u9ad8\u901f\u516c\u8def|\u6536\u8d39\u7ad9|\u5ba2\u8f66|ETC/i, C.traffic, C.travel],
   [/\u9152\u5e97|\u4f4f\u5bbf|\u5bbe\u9986|\u65c5\u5e97|\u623f\u8d39|\u4f4f\u5bbf\u8d39/i, C.hotel, C.travel],
   [/\u9910\u996e|\u9910\u8d39|\u996d\u5e97|\u9910\u5385|\u98df\u54c1|\u996e\u54c1/i, C.meal, C.meal],
   [/\u529e\u516c|\u8017\u6750|\u6587\u5177|\u6253\u5370|\u5feb\u9012/i, C.office, C.office],
@@ -472,6 +472,7 @@ function normalizeDate(value) {
 
 function detectItemName(text) {
   if (isDidiTripTable(text)) return "\u6253\u8f66\u8d39\u7528";
+  if (isTollInvoice(text)) return "\u901a\u884c\u8d39";
   const starred = text.match(/\*([^\n*]{2,24})\*([^\n\s]{2,24})/);
   if (starred) return cleanItemName(`*${starred[1]}*${starred[2]}`);
   const keywords = text.match(/(\u751f\u4ea7\u751f\u6d3b\u670d\u52a1\*?\u901a\u884c\u8d39|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u5ba2\u8f66|\u9ad8\u901f)/);
@@ -488,6 +489,8 @@ function detectAmount(text) {
   const compact = text.replace(/\s+/g, "");
   const didiAmount = detectDidiTripAmount(compact);
   if (didiAmount != null) return didiAmount;
+  const tollAmount = detectTollAmount(compact);
+  if (tollAmount != null) return tollAmount;
   const preferredPatterns = [
     /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u5c0f\u5199|\u7968\u4ef7|\u5e94\u4ed8\u91d1\u989d|\u5b9e\u4ed8\u91d1\u989d|\u5408\u8ba1\u91d1\u989d|\u603b\u91d1\u989d)[^0-9A-Z]{0,120}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
     /(?:\u4ef7\u7a0e\u5408\u8ba1|\u5408\u8ba1)[^0-9A-Z]{0,40}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
@@ -524,6 +527,25 @@ function isDidiTripTable(text) {
   return /\u6ef4\u6ef4\u51fa\u884c[\s\S]{0,20}\u884c\u7a0b\u5355|DIDI\s*TRAVEL|\u5171\d+\u7b14\u884c\u7a0b/.test(text);
 }
 
+function detectTollAmount(compactText) {
+  if (!isTollInvoice(compactText)) return null;
+  const labeledPatterns = [
+    /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u4ef7\u7a0e\u5408\u8ba1|\u5c0f\u5199|\u5408\u8ba1\u91d1\u989d|\u91d1\u989d\u5408\u8ba1|\u901a\u884c\u8d39\u5408\u8ba1|\u5408\u8ba1)[^0-9A-Z]{0,80}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
+    /(?:\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39)[^0-9A-Z]{0,120}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
+  ];
+  const labeled = collectAmounts(compactText, labeledPatterns);
+  if (labeled.length) return Math.max(...labeled);
+
+  const currencyValues = collectAmounts(compactText, [
+    /(?:CNY|RMB|\u4eba\u6c11\u5e01)([0-9]{1,5}(?:\.[0-9]{1,2})?)/gi,
+    /([0-9]{1,5}(?:\.[0-9]{1,2})?)\u5143/gi,
+  ]);
+  return currencyValues.length ? Math.max(...currencyValues) : null;
+}
+
+function isTollInvoice(text) {
+  return /\u901a\u884c\u8d39|\u516c\u8def\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f\u516c\u8def|\u6536\u8d39\u7ad9|ETC|\u5165\u53e3|\u51fa\u53e3/.test(text);
+}
 function collectAmounts(text, patterns) {
   const values = [];
   for (const pattern of patterns) {
@@ -580,6 +602,9 @@ function detectFirst(patterns, text) {
 
 function detectTripLegs(text) {
   const legs = [];
+  const tollLeg = detectTollRoute(text);
+  if (tollLeg) return [tollLeg];
+
   const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const routePattern = /(?:(\d{4}[\u5e74\/-]\d{1,2}[\u6708\/-]\d{1,2}\u65e5?|\d{1,2}\u6708\d{1,2}\u65e5).{0,20})?([\u4e00-\u9fa5A-Za-z]{2,30})\s*(?:\u81f3|\u5230|->|-)\s*([\u4e00-\u9fa5A-Za-z]{2,30})/;
   for (const line of lines) {
@@ -598,6 +623,48 @@ function detectTripLegs(text) {
   return route ? [{ date: "", origin: cleanPlace(route[1]), destination: cleanPlace(route[2]), transport: "" }] : [];
 }
 
+function detectTollRoute(text) {
+  if (!isTollInvoice(text)) return null;
+  const origin = detectFirst([
+    /(?:\u5165\u53e3(?:\u6536\u8d39\u7ad9|\u7ad9)?|\u5165\u7ad9|\u9a76\u5165)[:\uff1a\s]*([^\n\uff0c,\u3002\uff1b;]{2,40})/,
+  ], text);
+  const destination = detectFirst([
+    /(?:\u51fa\u53e3(?:\u6536\u8d39\u7ad9|\u7ad9)?|\u51fa\u7ad9|\u9a76\u51fa)[:\uff1a\s]*([^\n\uff0c,\u3002\uff1b;]{2,40})/,
+  ], text);
+  if (origin && destination) {
+    return {
+      date: detectTollTravelDate(text) || detectInvoiceDate(text),
+      origin: cleanTollPlace(origin),
+      destination: cleanTollPlace(destination),
+      transport: C.traffic,
+    };
+  }
+
+  const compact = text.replace(/\s+/g, "");
+  const compactRoute = compact.match(/(?:\u5165\u53e3(?:\u6536\u8d39\u7ad9|\u7ad9)?|\u5165\u7ad9|\u9a76\u5165)[:\uff1a]?([\u4e00-\u9fa5A-Za-z]{2,20}?)(?:\u51fa\u53e3(?:\u6536\u8d39\u7ad9|\u7ad9)?|\u51fa\u7ad9|\u9a76\u51fa)[:\uff1a]?([\u4e00-\u9fa5A-Za-z]{2,20}?)(?:\u901a\u884c|\u4ea4\u6613|\u65e5\u671f|\u65f6\u95f4|\u91d1\u989d|\u8f66\u724c|\u8f66\u578b|\u53d1\u7968|\u4ef7\u7a0e|\u5408\u8ba1|$)/);
+  if (!compactRoute) return null;
+  return {
+    date: detectTollTravelDate(text) || detectInvoiceDate(text),
+    origin: cleanTollPlace(compactRoute[1]),
+    destination: cleanTollPlace(compactRoute[2]),
+    transport: C.traffic,
+  };
+}
+
+function detectTollTravelDate(text) {
+  return normalizeDate(detectFirst([
+    /(?:\u901a\u884c\u65e5\u671f|\u901a\u884c\u65f6\u95f4|\u4ea4\u6613\u65e5\u671f|\u4ea4\u6613\u65f6\u95f4|\u5165\u53e3\u65f6\u95f4|\u51fa\u53e3\u65f6\u95f4)[:\uff1a\s]*(\d{4}\s*[\u5e74\/-]\s*\d{1,2}\s*[\u6708\/-]\s*\d{1,2}\s*[\u65e5\u53f7]?)/,
+    /(?:\u901a\u884c\u65e5\u671f|\u901a\u884c\u65f6\u95f4|\u4ea4\u6613\u65e5\u671f|\u4ea4\u6613\u65f6\u95f4|\u5165\u53e3\u65f6\u95f4|\u51fa\u53e3\u65f6\u95f4)[:\uff1a\s]*(\d{1,2}\s*\u6708\s*\d{1,2}\s*[\u65e5\u53f7])/,
+  ], text));
+}
+
+function cleanTollPlace(value) {
+  const normalized = value
+    .replace(/(?:\u51fa\u53e3|\u51fa\u7ad9|\u9a76\u51fa|\u5165\u53e3|\u5165\u7ad9|\u9a76\u5165|\u901a\u884c\u65e5\u671f|\u901a\u884c\u65f6\u95f4|\u4ea4\u6613\u65f6\u95f4|\u4ea4\u6613\u65e5\u671f|\u91d1\u989d|\u8f66\u724c|\u8f66\u578b|\u53d1\u7968|\u4ef7\u7a0e|\u5408\u8ba1).*$/, "")
+    .replace(/(?:\u5165\u53e3|\u51fa\u53e3|\u5165\u7ad9|\u51fa\u7ad9|\u9a76\u5165|\u9a76\u51fa)[:\uff1a\s]*/g, "")
+    .replace(/(?:\u6536\u8d39\u7ad9|\u7ad9)$/, "");
+  return cleanPlace(normalized);
+}
 function detectTrainStationRoute(text) {
   const stationMatch = text.match(/([\u4e00-\u9fa5]{2,12})\s*\u7ad9[\s\S]{0,120}\b[GDCKZ]\d{2,5}\b[\s\S]{0,120}([\u4e00-\u9fa5]{2,12})\s*\u7ad9/);
   if (stationMatch) return buildTrainLeg(text, stationMatch[1], stationMatch[2]);
