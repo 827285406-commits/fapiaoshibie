@@ -59,6 +59,8 @@ const issueCount = document.querySelector("#issueCount");
 const tripSummary = document.querySelector("#tripSummary");
 const clearAll = document.querySelector("#clearAll");
 const exportJson = document.querySelector("#exportJson");
+const exportCsv = document.querySelector("#exportCsv");
+const summaryTable = document.querySelector("#summaryTable");
 
 fileInput.addEventListener("change", event => handleFiles(event.target.files));
 
@@ -94,6 +96,10 @@ clearAll.addEventListener("click", () => {
 exportJson.addEventListener("click", () => {
   const payload = JSON.stringify({ count: records.length, totalAmount: sumAmount(records), records }, null, 2);
   download("invoice-summary.json", payload, "application/json");
+});
+
+exportCsv.addEventListener("click", () => {
+  download("invoice-summary.csv", buildSummaryCsv(records), "text/csv;charset=utf-8");
 });
 
 results.addEventListener("click", event => {
@@ -439,6 +445,7 @@ function buildFileErrorRecord(fileName, message) {
     expenseType: C.uncategorized,
     amount: null,
     personName: "",
+    text: "",
     invoiceDate: "",
     invoiceNumber: "",
     tripLegs: [],
@@ -457,7 +464,7 @@ function analyzeInvoice(fileName, text) {
   const tripLegs = detectTripLegs(normalizedText).map(leg => ({ ...leg, transport: leg.transport || (expenseType === C.travel ? category : "") }));
   const issues = validateInvoice({ text: normalizedText, category, expenseType, amount, invoiceDate, tripLegs });
   const suggestedName = buildSuggestedName({ category, expenseType, amount, personName, invoiceDate, fileName });
-  return { fileName, suggestedName, category, expenseType, amount, itemName, personName, invoiceDate, invoiceNumber, tripLegs, issues };
+  return { fileName, suggestedName, category, expenseType, amount, itemName, personName, invoiceDate, invoiceNumber, tripLegs, issues, text: normalizedText };
 }
 
 function detectCategory(text) {
@@ -639,6 +646,7 @@ function detectTripLegs(text) {
   const legs = [];
   const tollLeg = detectTollRoute(text);
   if (tollLeg) return [tollLeg];
+  if (isDidiTripTable(text)) return [];
 
   const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const routePattern = /(?:(\d{4}[\u5e74\/-]\d{1,2}[\u6708\/-]\d{1,2}\u65e5?|\d{1,2}\u6708\d{1,2}\u65e5).{0,20})?([\u4e00-\u9fa5A-Za-z]{2,30})\s*(?:\u81f3|\u5230|->|-)\s*([\u4e00-\u9fa5A-Za-z]{2,30})/;
@@ -799,6 +807,7 @@ function render() {
   invoiceCount.textContent = records.length;
   issueCount.textContent = records.reduce((total, record) => total + record.issues.filter(issue => issue.level !== "info").length, 0);
   tripSummary.textContent = buildTripSummary(records);
+  renderSummaryTable(records);
   if (!records.length) {
     results.className = "results empty";
     results.textContent = C.noInvoices;
@@ -845,8 +854,68 @@ function buildTripSummary(items) {
   return trips.length ? `${nameText}\uff1a${trips.join("\uff1b")}\u3002` : `${nameText}\uff1a${C.noTrip}`;
 }
 
+function renderSummaryTable(items) {
+  if (!items.length) {
+    summaryTable.className = "summary-table empty";
+    summaryTable.textContent = "\u6682\u65e0\u6c47\u603b\u6570\u636e\u3002";
+    return;
+  }
+  summaryTable.className = "summary-table";
+  const rows = items.map(record => {
+    const tableRecord = buildTableRecord(record);
+    return "<tr>" +
+      "<td>" + escapeHtml(tableRecord.name) + "</td>" +
+      "<td>" + escapeHtml(tableRecord.amount) + "</td>" +
+      "<td>" + escapeHtml(tableRecord.type) + "</td>" +
+      "<td>" + escapeHtml(tableRecord.date) + "</td>" +
+      "<td>" + escapeHtml(tableRecord.trip) + "</td>" +
+      "</tr>";
+  }).join("");
+  summaryTable.innerHTML = "<table>" +
+    "<thead><tr><th>\u53d1\u7968\u540d\u79f0</th><th>\u53d1\u7968\u91d1\u989d</th><th>\u53d1\u7968\u7c7b\u578b</th><th>\u65f6\u95f4</th><th>\u884c\u7a0b</th></tr></thead>" +
+    "<tbody>" + rows + "</tbody>" +
+    "</table>";
+}
+
+function buildTableRecord(record) {
+  const itineraryOnly = isItineraryOnlyRecord(record);
+  return {
+    name: record.suggestedName || record.fileName || "-",
+    amount: formatAmount(record.amount) + (itineraryOnly ? "\uff08\u4e0d\u8ba1\u5165\u5408\u8ba1\uff09" : ""),
+    type: record.category || C.unknown,
+    date: getRecordDate(record),
+    trip: formatTrip(record),
+  };
+}
+
+function buildSummaryCsv(items) {
+  const headers = ["\u53d1\u7968\u540d\u79f0", "\u53d1\u7968\u91d1\u989d", "\u53d1\u7968\u7c7b\u578b", "\u65f6\u95f4", "\u884c\u7a0b"];
+  const rows = items.map(record => {
+    const tableRecord = buildTableRecord(record);
+    return [tableRecord.name, tableRecord.amount, tableRecord.type, tableRecord.date, tableRecord.trip];
+  });
+  return "\ufeff" + [headers, ...rows].map(row => row.map(escapeCsvCell).join(",")).join("\n");
+}
+
+function escapeCsvCell(value) {
+  return "\"" + String(value ?? "").replace(/"/g, "" + "\"\"") + "\"";
+}
+
+function getRecordDate(record) {
+  return record.invoiceDate || (record.tripLegs[0] && record.tripLegs[0].date) || "-";
+}
+
+function formatTrip(record) {
+  if (!record.tripLegs.length) return "-";
+  return record.tripLegs.map(leg => (leg.origin || "?") + "->" + (leg.destination || "?")).join("\uff1b");
+}
+
+function isItineraryOnlyRecord(record) {
+  return isDidiTripTable(record.text || "");
+}
+
 function sumAmount(items) {
-  return items.reduce((total, item) => total + (item.amount || 0), 0);
+  return items.reduce((total, item) => total + (isItineraryOnlyRecord(item) ? 0 : item.amount || 0), 0);
 }
 
 function download(fileName, content, type) {

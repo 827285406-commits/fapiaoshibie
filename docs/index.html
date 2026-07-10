@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Invoice Agent</title>
-  <link rel="stylesheet" href="styles.css?v=20260710-toll-no-year">
+  <link rel="stylesheet" href="styles.css?v=20260710-summary-table">
 </head>
 <body>
   <header class="topbar">
@@ -12,7 +12,10 @@
       <p class="eyebrow">Invoice Agent</p>
       <h1>&#21457;&#31080;&#20998;&#26512;&#21161;&#25163;</h1>
     </div>
-    <button id="exportJson" class="ghost" type="button">&#23548;&#20986; JSON</button>
+    <div class="top-actions">
+      <button id="exportCsv" class="ghost" type="button">&#19979;&#36733; CSV &#34920;&#26684;</button>
+      <button id="exportJson" class="ghost" type="button">&#23548;&#20986; JSON</button>
+    </div>
   </header>
 
   <main>
@@ -46,8 +49,15 @@
 
     <section class="results-section">
       <div class="section-head">
-        <h2>&#20998;&#26512;&#32467;&#26524;</h2>
+        <h2>&#27719;&#24635;&#34920;</h2>
         <button id="clearAll" class="ghost" type="button">&#28165;&#31354;</button>
+      </div>
+      <div id="summaryTable" class="summary-table empty"></div>
+    </section>
+
+    <section class="results-section">
+      <div class="section-head">
+        <h2>&#20998;&#26512;&#32467;&#26524;</h2>
       </div>
       <div id="results" class="results empty"></div>
     </section>
@@ -56,6 +66,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
-  <script src="app.js?v=20260710-toll-no-year"></script>
+  <script src="app.js?v=20260710-summary-table"></script>
 </body>
 </html>
