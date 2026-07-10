@@ -215,6 +215,7 @@ function detectCategory(text) {
 function normalizeInvoiceText(text) {
   return text
     .replace(/[\uffe5\u00a5]/g, "CNY")
+    .replace(/C\s*N\s*Y/gi, "CNY")
     .replace(/\b[Yy]\s*(?=\d)/g, "CNY")
     .replace(/[（]/g, "(")
     .replace(/[）]/g, ")")
@@ -268,8 +269,31 @@ function collectAmounts(text, patterns) {
 }
 
 function detectPersonName(text) {
-  const match = text.match(/(?:\u59d3\u540d|\u4e58\u673a\u4eba|\u65c5\u5ba2|\u8d2d\u4e70\u65b9\u4e2a\u4eba|\u62a5\u9500\u4eba|\u7533\u8bf7\u4eba)[:\uff1a\s]*([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z?.]{1,20})/);
-  return match ? match[1].trim() : "";
+  const direct = text.match(/(?:\u59d3\u540d|\u4e58\u673a\u4eba|\u62a5\u9500\u4eba|\u7533\u8bf7\u4eba)[:\uff1a\s]*([\u4e00-\u9fa5A-Za-z\u00b7.]{2,12})/);
+  if (direct && isLikelyPersonName(direct[1])) return direct[1].trim();
+
+  const remark = text.match(/\u59d3\u540d[:\uff1a]?\s*([\u4e00-\u9fa5A-Za-z\u00b7.]{2,12})\s*(?:\u5ba2\u7968\u53f7|\u822a\u73ed|\u8bc1\u4ef6)/);
+  if (remark && isLikelyPersonName(remark[1])) return remark[1].trim();
+
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/\u65c5\u5ba2\u59d3\u540d|\u65c5\u5ba2/.test(lines[index])) {
+      const sameLine = lines[index].replace(/.*(?:\u65c5\u5ba2\u59d3\u540d|\u65c5\u5ba2)[:\uff1a\s]*/, "");
+      const sameCandidate = sameLine.match(/[\u4e00-\u9fa5A-Za-z\u00b7.]{2,12}/);
+      if (sameCandidate && isLikelyPersonName(sameCandidate[0])) return sameCandidate[0].trim();
+      for (let offset = 1; offset <= 3 && index + offset < lines.length; offset += 1) {
+        const candidate = lines[index + offset].match(/[\u4e00-\u9fa5A-Za-z\u00b7.]{2,12}/);
+        if (candidate && isLikelyPersonName(candidate[0])) return candidate[0].trim();
+      }
+    }
+  }
+  return "";
+}
+
+function isLikelyPersonName(value) {
+  const name = value.trim();
+  if (!/^[\u4e00-\u9fa5A-Za-z\u00b7.]{2,12}$/.test(name)) return false;
+  return !/(\u59d3\u540d|\u65c5\u5ba2|\u6709\u6548|\u8eab\u4efd|\u8bc1\u4ef6|\u53f7\u7801|\u5ba2\u7968|\u822a\u73ed|\u65e5\u671f|\u65f6\u95f4|\u7b7e\u6ce8|\u627f\u8fd0|\u7edf\u4e00|\u4ee3\u7801)/.test(name);
 }
 
 function detectFirst(patterns, text) {
@@ -283,18 +307,40 @@ function detectFirst(patterns, text) {
 function detectTripLegs(text) {
   const legs = [];
   const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const routePattern = /(?:(\d{4}[\u5e74\/-]\d{1,2}[\u6708\/-]\d{1,2}\u65e5?|\d{1,2}\u6708\d{1,2}\u65e5).{0,20})?([\u4e00-\u9fa5A-Za-z]{2,20})\s*(?:\u81f3|\u5230|->|-)\s*([\u4e00-\u9fa5A-Za-z]{2,20})/;
+  const routePattern = /(?:(\d{4}[\u5e74\/-]\d{1,2}[\u6708\/-]\d{1,2}\u65e5?|\d{1,2}\u6708\d{1,2}\u65e5).{0,20})?([\u4e00-\u9fa5A-Za-z]{2,30})\s*(?:\u81f3|\u5230|->|-)\s*([\u4e00-\u9fa5A-Za-z]{2,30})/;
   for (const line of lines) {
     const match = line.match(routePattern);
     if (match) legs.push({ date: match[1] || "", origin: cleanPlace(match[2]), destination: cleanPlace(match[3]), transport: "" });
   }
   if (legs.length) return legs;
-  const route = text.match(/(?:\u51fa\u53d1\u5730|\u59cb\u53d1|\u8d77\u70b9)[:\uff1a\s]*([\u4e00-\u9fa5A-Za-z]{2,20}).{0,20}(?:\u76ee\u7684\u5730|\u5230\u8fbe|\u7ec8\u70b9)[:\uff1a\s]*([\u4e00-\u9fa5A-Za-z]{2,20})/);
+
+  const fromToLeg = detectFromToRoute(text);
+  if (fromToLeg) return [fromToLeg];
+
+  const route = text.match(/(?:\u51fa\u53d1\u5730|\u59cb\u53d1|\u8d77\u70b9)[:\uff1a\s]*([\u4e00-\u9fa5A-Za-z]{2,30}).{0,40}(?:\u76ee\u7684\u5730|\u5230\u8fbe|\u7ec8\u70b9)[:\uff1a\s]*([\u4e00-\u9fa5A-Za-z]{2,30})/);
   return route ? [{ date: "", origin: cleanPlace(route[1]), destination: cleanPlace(route[2]), transport: "" }] : [];
 }
 
+function detectFromToRoute(text) {
+  const origin = detectFirst([/(?:^|\n|\s)(?:\u81ea|\u51fa\u53d1|\u8d77\u98de)[:\uff1a]?\s*([^\n]{2,80})/], text);
+  const destination = detectFirst([/(?:^|\n|\s)(?:\u81f3|\u5230\u8fbe|\u76ee\u7684\u5730)[:\uff1a]?\s*([^\n]{2,80})/], text);
+  if (!origin || !destination) return null;
+  return {
+    date: normalizeDate(detectFirst([/(\d{4}\s*[\u5e74\/-]\s*\d{1,2}\s*[\u6708\/-]\s*\d{1,2}\s*\u65e5?)/, /(\d{1,2}\s*\u6708\s*\d{1,2}\s*\u65e5)/], text)),
+    origin: cleanPlace(origin),
+    destination: cleanPlace(destination),
+    transport: "",
+  };
+}
+
 function cleanPlace(value) {
-  return value.trim().replace(/[\uff0c,\u3002\uff1b;\uff1a:\s].*$/, "");
+  let place = value
+    .trim()
+    .replace(/^(?:\u81ea|\u81f3|\u51fa\u53d1|\u5230\u8fbe|\u76ee\u7684\u5730)[:\uff1a]?\s*/, "")
+    .replace(/\b[A-Z]{2,4}\b.*$/, "")
+    .replace(/[\uff0c,\u3002\uff1b;\uff1a:\s].*$/, "");
+  place = place.replace(/(?:\u5357\u90ca|\u6d66\u4e1c|\u8679\u6865|\u9996\u90fd|\u5927\u5174|\u53cc\u6d41|\u5929\u5e9c|\u54b8\u9633|\u7984\u53e3|\u767d\u4e91|\u5b9d\u5b89|\u8427\u5c71|\u9ad8\u5d0e|\u9f99\u6d1e\u5821|\u6c5f\u5317|\u4e24\u6c5f|\u957f\u6c34|\u65b0\u90d1|\u80f6\u4e1c|\u6ee8\u6d77|\u65b0\u6865|\u9ec4\u82b1|\u4e09\u4e49|\u7f8e\u5170|\u51e4\u51f0|\u5434\u5729)?(?:\u56fd\u9645)?\u673a\u573a.*$/, "");
+  return place || value.trim();
 }
 
 function validateInvoice(record) {
@@ -303,11 +349,17 @@ function validateInvoice(record) {
   if (record.category === C.unknown) issues.push({ level: "warning", message: "\u672a\u80fd\u5224\u65ad\u53d1\u7968\u7c7b\u578b\uff0c\u8bf7\u4eba\u5de5\u786e\u8ba4\u3002" });
   if (!record.invoiceDate) issues.push({ level: "warning", message: "\u672a\u8bc6\u522b\u5230\u53d1\u7968\u65e5\u671f\u3002" });
   if (record.expenseType === C.travel && record.tripLegs.length === 0) issues.push({ level: "warning", message: "\u5dee\u65c5\u7c7b\u53d1\u7968\u672a\u8bc6\u522b\u5230\u5b8c\u6574\u51fa\u53d1\u5730/\u76ee\u7684\u5730\u3002" });
-  if (/\u4f5c\u5e9f|\u51b2\u7ea2|\u7ea2\u5b57|\u9000\u7968|\u9000\u6b3e|\u91cd\u590d\u62a5\u9500/.test(record.text)) issues.push({ level: "warning", message: "\u51fa\u73b0\u4f5c\u5e9f/\u51b2\u7ea2/\u9000\u7968\u7b49\u5173\u952e\u8bcd\uff0c\u8bf7\u786e\u8ba4\u662f\u5426\u53ef\u62a5\u9500\u3002" });
+  if (hasSuspiciousInvoiceKeyword(record.text)) issues.push({ level: "warning", message: "\u51fa\u73b0\u4f5c\u5e9f/\u51b2\u7ea2/\u9000\u7968\u7b49\u5173\u952e\u8bcd\uff0c\u8bf7\u786e\u8ba4\u662f\u5426\u53ef\u62a5\u9500\u3002" });
   const title = getLineValue(record.text, "\u8d2d\u4e70\u65b9") || getLineValue(record.text, "\u62ac\u5934");
   const taxId = getLineValue(record.text, "\u7eb3\u7a0e\u4eba\u8bc6\u522b\u53f7") || getLineValue(record.text, "\u7edf\u4e00\u793e\u4f1a\u4fe1\u7528\u4ee3\u7801");
   if (["", "\u4e2a\u4eba", "\u65e0"].includes(title ?? "company-ok") && !taxId) issues.push({ level: "warning", message: "\u8d2d\u4e70\u65b9\u62ac\u5934\u6216\u7eb3\u7a0e\u4eba\u8bc6\u522b\u53f7\u53ef\u80fd\u7f3a\u5931\u3002" });
   return issues;
+}
+
+function hasSuspiciousInvoiceKeyword(text) {
+  const normalTravelNote = /\u4e0d\u5f97\u53d8\u66f4|\u4e0d\u5f97\u9000\u7968|\u4e0d\u5f97\u7b7e\u8f6c/.test(text);
+  if (normalTravelNote && !/\u4f5c\u5e9f|\u51b2\u7ea2|\u7ea2\u5b57|\u9000\u6b3e|\u91cd\u590d\u62a5\u9500/.test(text)) return false;
+  return /\u4f5c\u5e9f|\u51b2\u7ea2|\u7ea2\u5b57|\u9000\u7968|\u9000\u6b3e|\u91cd\u590d\u62a5\u9500/.test(text);
 }
 
 function getLineValue(text, label) {
