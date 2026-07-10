@@ -155,13 +155,70 @@ async function extractPdfEmbeddedText(pdf) {
 
 
 function extractPdfStructuredText(buffer) {
-  let raw = "";
+  const bytes = new Uint8Array(buffer);
+  const texts = [decodeUtf8Bytes(bytes), ...extractPdfStreamTexts(bytes)];
+  return texts.map(extractStructuredBlocksFromText).filter(Boolean).join("\n");
+}
+
+function extractPdfStreamTexts(bytes) {
+  const texts = [];
+  const streamMarker = asciiBytes("stream");
+  const endMarker = asciiBytes("endstream");
+  let cursor = 0;
+  while (cursor < bytes.length) {
+    const streamIndex = findBytes(bytes, streamMarker, cursor);
+    if (streamIndex < 0) break;
+    let start = streamIndex + streamMarker.length;
+    if (bytes[start] === 13 && bytes[start + 1] === 10) start += 2;
+    else if (bytes[start] === 10 || bytes[start] === 13) start += 1;
+    const end = findBytes(bytes, endMarker, start);
+    if (end < 0) break;
+    let contentEnd = end;
+    while (contentEnd > start && (bytes[contentEnd - 1] === 10 || bytes[contentEnd - 1] === 13)) contentEnd -= 1;
+    const content = bytes.slice(start, contentEnd);
+    const inflated = inflatePdfStream(content);
+    if (inflated) texts.push(decodeUtf8Bytes(inflated));
+    const rawText = decodeUtf8Bytes(content);
+    if (rawText.includes("xbrl")) texts.push(rawText);
+    cursor = end + endMarker.length;
+  }
+  return texts;
+}
+
+function inflatePdfStream(content) {
+  const inflater = (window.pako && window.pako.inflate) || (globalThis.pako && globalThis.pako.inflate);
+  if (!inflater) return null;
   try {
-    raw = new TextDecoder("utf-8").decode(new Uint8Array(buffer));
+    return inflater(content);
+  } catch {
+    return null;
+  }
+}
+
+function decodeUtf8Bytes(bytes) {
+  try {
+    return new TextDecoder("utf-8").decode(bytes);
   } catch {
     return "";
   }
-  return extractStructuredBlocksFromText(raw);
+}
+
+function asciiBytes(value) {
+  return Uint8Array.from(value, char => char.charCodeAt(0));
+}
+
+function findBytes(bytes, pattern, fromIndex) {
+  for (let index = fromIndex; index <= bytes.length - pattern.length; index += 1) {
+    let matched = true;
+    for (let offset = 0; offset < pattern.length; offset += 1) {
+      if (bytes[index + offset] !== pattern[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return index;
+  }
+  return -1;
 }
 
 async function extractPdfAttachmentText(pdf) {
