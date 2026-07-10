@@ -31,9 +31,9 @@ Outputs:
 
 ## Supported inputs
 
-Works out of the box with `.md`, `.txt`, and text-based `.pdf` files. The GitHub Pages web app can upload PDF files and extract embedded text in the browser with PDF.js.
+Works out of the box with `.md`, `.txt`, and text-based `.pdf` files. The GitHub Pages web app can upload PDF files, extract embedded text in the browser with PDF.js, and fall back to browser-side OCR for scanned PDFs with Tesseract.js.
 
-Scanned image PDFs and image invoices such as `.jpg`, `.png`, and `.webp` need OCR or a vision model first. Extend `invoice_agent/extractors.py` to convert images into text, then reuse the same parsing, validation, and reporting pipeline.
+Scanned image PDFs can be recognized by the web app OCR fallback, though accuracy depends on image quality. Image invoices such as `.jpg`, `.png`, and `.webp` still need OCR or a vision model first. Extend `invoice_agent/extractors.py` to convert images into text, then reuse the same parsing, validation, and reporting pipeline.
 
 ## Example
 
