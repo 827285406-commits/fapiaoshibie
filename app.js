@@ -35,7 +35,7 @@ const C = {
 const categoryRules = [
   [/\u673a\u7968|\u822a\u7a7a|\u822a\u73ed|\u767b\u673a\u724c|air|flight|\u673a\u573a/i, C.flight, C.travel],
   [/\u706b\u8f66|\u9ad8\u94c1|\u52a8\u8f66|\u94c1\u8def|\u8f66\u7968/i, C.train, C.travel],
-  [/\u51fa\u79df|\u7f51\u7ea6\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u5ba2\u8fd0|\u6c7d\u8f66\u7968/i, C.traffic, C.travel],
+  [/\u51fa\u79df|\u7f51\u7ea6\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u5ba2\u8fd0|\u6c7d\u8f66\u7968|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f|\u5ba2\u8f66|ETC/i, C.traffic, C.travel],
   [/\u9152\u5e97|\u4f4f\u5bbf|\u5bbe\u9986|\u65c5\u5e97|\u623f\u8d39/i, C.hotel, C.travel],
   [/\u9910\u996e|\u9910\u8d39|\u996d\u5e97|\u9910\u5385|\u98df\u54c1|\u996e\u54c1/i, C.meal, C.meal],
   [/\u529e\u516c|\u8017\u6750|\u6587\u5177|\u6253\u5370|\u5feb\u9012/i, C.office, C.office],
@@ -192,15 +192,17 @@ function buildFileErrorRecord(fileName, message) {
 }
 
 function analyzeInvoice(fileName, text) {
-  const [category, expenseType] = detectCategory(text);
-  const amount = detectAmount(text);
-  const personName = detectPersonName(text);
-  const invoiceDate = detectFirst([/(\d{4}[\u5e74\/-]\d{1,2}[\u6708\/-]\d{1,2}\u65e5?)/, /(\d{1,2}\u6708\d{1,2}\u65e5)/], text);
-  const invoiceNumber = detectFirst([/(?:\u53d1\u7968\u53f7\u7801|\u7968\u636e\u53f7\u7801|\u7535\u5b50\u5ba2\u7968\u53f7\u7801|No\.?|NO\.?)[:\uff1a\s]*([A-Z0-9-]{6,32})/i], text);
-  const tripLegs = detectTripLegs(text).map(leg => ({ ...leg, transport: leg.transport || (expenseType === C.travel ? category : "") }));
-  const issues = validateInvoice({ text, category, expenseType, amount, invoiceDate, tripLegs });
+  const normalizedText = normalizeInvoiceText(text);
+  const [category, expenseType] = detectCategory(normalizedText);
+  const amount = detectAmount(normalizedText);
+  const itemName = detectItemName(normalizedText);
+  const personName = detectPersonName(normalizedText);
+  const invoiceDate = normalizeDate(detectFirst([/(\d{4}\s*[\u5e74\/-]\s*\d{1,2}\s*[\u6708\/-]\s*\d{1,2}\s*\u65e5?)/, /(\d{1,2}\s*\u6708\s*\d{1,2}\s*\u65e5)/], normalizedText));
+  const invoiceNumber = detectFirst([/(?:\u53d1\u7968\u53f7\u7801|\u7968\u636e\u53f7\u7801|\u7535\u5b50\u5ba2\u7968\u53f7\u7801|No\.?|NO\.?)[:\uff1a\s]*([A-Z0-9-]{6,32})/i], normalizedText);
+  const tripLegs = detectTripLegs(normalizedText).map(leg => ({ ...leg, transport: leg.transport || (expenseType === C.travel ? category : "") }));
+  const issues = validateInvoice({ text: normalizedText, category, expenseType, amount, invoiceDate, tripLegs });
   const suggestedName = buildSuggestedName({ category, expenseType, amount, personName, invoiceDate, fileName });
-  return { fileName, suggestedName, category, expenseType, amount, personName, invoiceDate, invoiceNumber, tripLegs, issues };
+  return { fileName, suggestedName, category, expenseType, amount, itemName, personName, invoiceDate, invoiceNumber, tripLegs, issues };
 }
 
 function detectCategory(text) {
@@ -210,15 +212,41 @@ function detectCategory(text) {
   return [C.unknown, C.uncategorized];
 }
 
+function normalizeInvoiceText(text) {
+  return text
+    .replace(/[\uffe5\u00a5]/g, "CNY")
+    .replace(/[（]/g, "(")
+    .replace(/[）]/g, ")")
+    .replace(/[：]/g, ":")
+    .replace(/[ 	]+/g, " ");
+}
+
+function normalizeDate(value) {
+  return value ? value.replace(/\s+/g, "") : "";
+}
+
+function detectItemName(text) {
+  const starred = text.match(/\*([^\n*]{2,24})\*([^\n\s]{2,24})/);
+  if (starred) return cleanItemName(`*${starred[1]}*${starred[2]}`);
+  const keywords = text.match(/(\u751f\u4ea7\u751f\u6d3b\u670d\u52a1\*?\u901a\u884c\u8d39|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u5ba2\u8f66|\u9ad8\u901f)/);
+  if (keywords) return keywords[1];
+  const explicit = text.match(/(?:\u9879\u76ee\u540d\u79f0|\u9879\u76ee)[::\s]*([^\n]{2,60})/);
+  return explicit ? cleanItemName(explicit[1]) : "";
+}
+
+function cleanItemName(value) {
+  return value.replace(/\s{2,}.*/, "").replace(/\u89c4\u683c\u578b\u53f7.*/, "").trim();
+}
+
 function detectAmount(text) {
   const patterns = [
-    /(?:\u4ef7\u7a0e\u5408\u8ba1|\u5408\u8ba1\u91d1\u989d|\u603b\u91d1\u989d|\u7968\u4ef7|\u91d1\u989d|\u8d39\u7528|\u5c0f\u8ba1)[:\uff1a\s]*(?:\u4eba\u6c11\u5e01|CNY)?\s*([0-9]+(?:\.[0-9]{1,2})?)/gi,
-    /(?:\u4eba\u6c11\u5e01|CNY)\s*([0-9]+(?:\.[0-9]{1,2})?)/gi,
-    /([0-9]+(?:\.[0-9]{1,2})?)\s*\u5143/gi,
+    /(?:\u4ef7\u7a0e\u5408\u8ba1|\u5408\u8ba1\u91d1\u989d|\u603b\u91d1\u989d|\u7968\u4ef7|\u91d1\u989d|\u8d39\u7528|\u5c0f\u8ba1|\u5c0f\u5199)[^0-9]{0,30}(?:CNY|\u4eba\u6c11\u5e01)?\s*([0-9]+(?:\s*\.\s*[0-9]{1,2})?)/gi,
+    /(?:CNY|\u4eba\u6c11\u5e01)\s*([0-9]+(?:\s*\.\s*[0-9]{1,2})?)/gi,
+    /([0-9]+(?:\s*\.\s*[0-9]{1,2})?)\s*\u5143/gi,
   ];
   const values = [];
   for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) values.push(Number(match[1]));
+    for (const match of text.matchAll(pattern)) values.push(Number(match[1].replace(/\s+/g, "")));
   }
   return values.length ? Math.max(...values) : null;
 }
@@ -313,6 +341,7 @@ function renderRecord(record) {
         <div><small>\u59d3\u540d</small>${escapeHtml(record.personName || "-")}</div>
         <div><small>\u7c7b\u578b</small>${escapeHtml(record.category)} / ${escapeHtml(record.expenseType)}</div>
         <div><small>\u91d1\u989d</small>${formatAmount(record.amount)}</div>
+        <div><small>\u9879\u76ee</small>${escapeHtml(record.itemName || "-")}</div>
         <div><small>\u65e5\u671f</small>${escapeHtml(record.invoiceDate || "-")}</div>
         <div><small>\u7968\u53f7</small>${escapeHtml(record.invoiceNumber || "-")}</div>
         <div><small>\u884c\u7a0b</small>${escapeHtml(trip)}</div>
