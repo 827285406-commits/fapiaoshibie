@@ -122,8 +122,9 @@ async function extractPdfText(file) {
   if (!window.pdfjsLib) throw new Error(C.pdfLoadError);
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   const buffer = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
-  const embeddedText = await extractPdfEmbeddedText(pdf);
+  const structuredText = extractPdfStructuredText(buffer);
+  const pdf = await window.pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  const embeddedText = [structuredText, await extractPdfEmbeddedText(pdf)].filter(Boolean).join("\n");
   if (isPdfTextSufficient(embeddedText)) return embeddedText;
   tripSummary.textContent = C.ocrStarting;
   const ocrText = await extractPdfOcrText(pdf);
@@ -149,6 +150,60 @@ async function extractPdfEmbeddedText(pdf) {
     pages.push(content.items.map(item => item.str || "").join(" "));
   }
   return pages.join("\n").replace(/[ \t]+/g, " ").trim();
+}
+
+
+function extractPdfStructuredText(buffer) {
+  let raw = "";
+  try {
+    raw = new TextDecoder("utf-8").decode(new Uint8Array(buffer));
+  } catch {
+    return "";
+  }
+  const blocks = [...raw.matchAll(/<xbrl\b[\s\S]*?<\/xbrl>/gi)].map(match => match[0]);
+  return blocks.map(buildStructuredInvoiceText).filter(Boolean).join("\n");
+}
+
+function buildStructuredInvoiceText(xml) {
+  const voucherType = getXmlTagValue(xml, "TypeOfVoucher");
+  const ticketNumber = getXmlTagValue(xml, "ElectronicInvoiceRailwayETicketNumber");
+  const issueDate = getXmlTagValue(xml, "DateOfIssue");
+  const departure = getXmlTagValue(xml, "DepartureStation");
+  const destination = getXmlTagValue(xml, "DestinationStation");
+  const trainNumber = getXmlTagValue(xml, "TrainNumber");
+  const travelDate = getXmlTagValue(xml, "TravelDate") || issueDate;
+  const departureTime = getXmlTagValue(xml, "DepartureTime");
+  const seatLevel = getXmlTagValue(xml, "SeatLevel");
+  const carriage = getXmlTagValue(xml, "Carriage");
+  const seat = getXmlTagValue(xml, "Seat");
+  const fare = getXmlTagValue(xml, "Fare");
+  const lines = [];
+  if (voucherType) lines.push(voucherType);
+  if (ticketNumber) lines.push(`\u7535\u5b50\u5ba2\u7968\u53f7\u7801 ${ticketNumber}`);
+  if (issueDate) lines.push(`\u53d1\u7968\u65e5\u671f ${issueDate}`);
+  if (travelDate) lines.push(`\u51fa\u884c\u65e5\u671f ${travelDate}`);
+  if (departure && destination) lines.push(`${travelDate || ""} ${departure} ${trainNumber || ""} ${destination}`.replace(/\s+/g, " ").trim());
+  if (departureTime) lines.push(`\u53d1\u8f66\u65f6\u95f4 ${departureTime}`);
+  if (seatLevel) lines.push(seatLevel);
+  if (carriage || seat) lines.push([carriage, seat].filter(Boolean).join(" "));
+  if (fare) lines.push(`\u7968\u4ef7 CNY${fare}`);
+  return lines.join("\n");
+}
+
+function getXmlTagValue(xml, localName) {
+  const pattern = new RegExp(`<[^>]*:?${localName}\\b[^>]*>([\\s\\S]*?)<\\/[^>]*:?${localName}>`, "i");
+  const match = xml.match(pattern);
+  if (!match) return "";
+  return decodeXmlEntities(match[1].replace(/<[^>]+>/g, "")).trim();
+}
+
+function decodeXmlEntities(value) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
 }
 
 async function extractPdfOcrText(pdf) {
