@@ -124,7 +124,8 @@ async function extractPdfText(file) {
   const buffer = await file.arrayBuffer();
   const structuredText = extractPdfStructuredText(buffer);
   const pdf = await window.pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
-  const embeddedText = [structuredText, await extractPdfEmbeddedText(pdf)].filter(Boolean).join("\n");
+  const attachmentText = await extractPdfAttachmentText(pdf);
+  const embeddedText = [structuredText, attachmentText, await extractPdfEmbeddedText(pdf)].filter(Boolean).join("\n");
   if (isPdfTextSufficient(embeddedText)) return embeddedText;
   tripSummary.textContent = C.ocrStarting;
   const ocrText = await extractPdfOcrText(pdf);
@@ -160,12 +161,41 @@ function extractPdfStructuredText(buffer) {
   } catch {
     return "";
   }
-  const blocks = [...raw.matchAll(/<xbrl\b[\s\S]*?<\/xbrl>/gi)].map(match => match[0]);
+  return extractStructuredBlocksFromText(raw);
+}
+
+async function extractPdfAttachmentText(pdf) {
+  if (typeof pdf.getAttachments !== "function") return "";
+  const attachments = await pdf.getAttachments();
+  if (!attachments) return "";
+  return Object.values(attachments)
+    .map(attachment => decodeAttachmentContent(attachment && attachment.content))
+    .map(extractStructuredBlocksFromText)
+    .filter(Boolean)
+    .join("\n");
+}
+
+function decodeAttachmentContent(content) {
+  if (!content) return "";
+  try {
+    return new TextDecoder("utf-8").decode(content);
+  } catch {
+    return "";
+  }
+}
+
+function extractStructuredBlocksFromText(raw) {
+  const blocks = [...raw.matchAll(/<[^>]*xbrl\b[\s\S]*?<\/[^>]*xbrl>/gi)].map(match => match[0]);
   return blocks.map(buildStructuredInvoiceText).filter(Boolean).join("\n");
 }
 
 function buildStructuredInvoiceText(xml) {
   const voucherType = getXmlTagValue(xml, "TypeOfVoucher");
+  if (/AirTransport|atr:/i.test(xml)) return buildAirTransportText(xml, voucherType);
+  return buildRailwayTicketText(xml, voucherType);
+}
+
+function buildRailwayTicketText(xml, voucherType) {
   const ticketNumber = getXmlTagValue(xml, "ElectronicInvoiceRailwayETicketNumber");
   const issueDate = getXmlTagValue(xml, "DateOfIssue");
   const departure = getXmlTagValue(xml, "DepartureStation");
@@ -187,6 +217,40 @@ function buildStructuredInvoiceText(xml) {
   if (seatLevel) lines.push(seatLevel);
   if (carriage || seat) lines.push([carriage, seat].filter(Boolean).join(" "));
   if (fare) lines.push(`\u7968\u4ef7 CNY${fare}`);
+  return lines.join("\n");
+}
+
+function buildAirTransportText(xml, voucherType) {
+  const ticketNumber = getXmlTagValue(xml, "ElectronicInvoiceAirTransportReceiptNumber") || getXmlTagValue(xml, "ETicketNumber");
+  const passengerName = getXmlTagValue(xml, "PassengerName") || getXmlTagValue(xml, "NameOfPurchaser");
+  const issueDate = getXmlTagValue(xml, "IssueDate") || getXmlTagValue(xml, "DateOfIssue");
+  const departure = getXmlTagValue(xml, "DepartureStation");
+  const destination = getXmlTagValue(xml, "DestinationStation");
+  const flight = getXmlTagValue(xml, "Flight");
+  const travelDate = getXmlTagValue(xml, "CarrierDate") || issueDate;
+  const departureTime = getXmlTagValue(xml, "DepartureTime");
+  const totalAmount = getXmlTagValue(xml, "TotalAmount");
+  const fare = getXmlTagValue(xml, "Fare");
+  const fuel = getXmlTagValue(xml, "FuelSurcharge");
+  const tax = getXmlTagValue(xml, "VatTaxAmount");
+  const fund = getXmlTagValue(xml, "CivilAviationDevelopmentFund");
+  const lines = [];
+  lines.push(voucherType || "\u7535\u5b50\u53d1\u7968\u822a\u7a7a\u8fd0\u8f93\u7535\u5b50\u5ba2\u7968\u884c\u7a0b\u5355");
+  if (passengerName) lines.push(`\u59d3\u540d ${passengerName}`);
+  if (ticketNumber) lines.push(`\u7535\u5b50\u5ba2\u7968\u53f7\u7801 ${ticketNumber}`);
+  if (issueDate) lines.push(`\u53d1\u7968\u65e5\u671f ${issueDate}`);
+  if (travelDate) lines.push(`\u51fa\u884c\u65e5\u671f ${travelDate}`);
+  if (departure && destination) {
+    lines.push(`${travelDate || ""} ${departure} ${flight || ""} ${destination}`.replace(/\s+/g, " ").trim());
+    lines.push(`\u81ea ${departure}`);
+    lines.push(`\u81f3 ${destination}`);
+  }
+  if (departureTime) lines.push(`\u8d77\u98de\u65f6\u95f4 ${departureTime}`);
+  if (totalAmount) lines.push(`\u5408\u8ba1\u91d1\u989d CNY${totalAmount}`);
+  if (fare) lines.push(`\u7968\u4ef7 CNY${fare}`);
+  if (fuel) lines.push(`\u71c3\u6cb9\u9644\u52a0\u8d39 CNY${fuel}`);
+  if (tax) lines.push(`\u7a0e\u989d CNY${tax}`);
+  if (fund) lines.push(`\u6c11\u822a\u53d1\u5c55\u57fa\u91d1 CNY${fund}`);
   return lines.join("\n");
 }
 
