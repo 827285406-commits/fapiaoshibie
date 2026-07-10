@@ -270,6 +270,10 @@ button.ghost {
   color: #9a5a00;
 }
 
+.info {
+  color: #075985;
+}
+
 .error {
   color: #b42318;
 }

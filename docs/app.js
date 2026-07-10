@@ -4,6 +4,7 @@ const C = {
   flight: "\u673a\u7968",
   train: "\u706b\u8f66\u7968",
   traffic: "\u4ea4\u901a",
+  taxi: "\u6253\u8f66",
   hotel: "\u4f4f\u5bbf",
   meal: "\u9910\u996e",
   office: "\u529e\u516c",
@@ -33,9 +34,10 @@ const C = {
 };
 
 const categoryRules = [
+  [/\u6ef4\u6ef4\u51fa\u884c|DIDI\s*TRAVEL|\u6ef4\u6ef4\u5feb\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u7f51\u7ea6\u8f66/i, C.taxi, C.travel],
   [/\u673a\u7968|\u822a\u7a7a|\u822a\u73ed|\u767b\u673a\u724c|air|flight|\u673a\u573a|\u56fd\u5185\u822a\u7a7a|\u822a\u7a7a\u8fd0\u8f93|\u673a\u573a\u5efa\u8bbe\u8d39|\u71c3\u6cb9\u9644\u52a0|\u822a\u6bb5|\u822a\u73ed\u53f7/i, C.flight, C.travel],
   [/\u706b\u8f66|\u9ad8\u94c1|\u52a8\u8f66|\u94c1\u8def|\u8f66\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u5217\u8f66|\u8f66\u6b21|\u4e00\u7b49\u5ea7|\u4e8c\u7b49\u5ea7|\u5546\u52a1\u5ea7|\u897f\u5b89\u5317|\u7ef5\u9633|\b[GDCKZ]\d{2,5}\b/i, C.train, C.travel],
-  [/\u51fa\u79df|\u7f51\u7ea6\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u5ba2\u8fd0|\u6c7d\u8f66\u7968|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f|\u5ba2\u8f66|ETC/i, C.traffic, C.travel],
+  [/\u51fa\u79df|\u5ba2\u8fd0|\u6c7d\u8f66\u7968|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f|\u5ba2\u8f66|ETC/i, C.traffic, C.travel],
   [/\u9152\u5e97|\u4f4f\u5bbf|\u5bbe\u9986|\u65c5\u5e97|\u623f\u8d39|\u4f4f\u5bbf\u8d39/i, C.hotel, C.travel],
   [/\u9910\u996e|\u9910\u8d39|\u996d\u5e97|\u9910\u5385|\u98df\u54c1|\u996e\u54c1/i, C.meal, C.meal],
   [/\u529e\u516c|\u8017\u6750|\u6587\u5177|\u6253\u5370|\u5feb\u9012/i, C.office, C.office],
@@ -469,6 +471,7 @@ function normalizeDate(value) {
 }
 
 function detectItemName(text) {
+  if (isDidiTripTable(text)) return "\u6253\u8f66\u8d39\u7528";
   const starred = text.match(/\*([^\n*]{2,24})\*([^\n\s]{2,24})/);
   if (starred) return cleanItemName(`*${starred[1]}*${starred[2]}`);
   const keywords = text.match(/(\u751f\u4ea7\u751f\u6d3b\u670d\u52a1\*?\u901a\u884c\u8d39|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u5ba2\u8f66|\u9ad8\u901f)/);
@@ -483,6 +486,8 @@ function cleanItemName(value) {
 
 function detectAmount(text) {
   const compact = text.replace(/\s+/g, "");
+  const didiAmount = detectDidiTripAmount(compact);
+  if (didiAmount != null) return didiAmount;
   const preferredPatterns = [
     /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u5c0f\u5199|\u7968\u4ef7|\u5e94\u4ed8\u91d1\u989d|\u5b9e\u4ed8\u91d1\u989d|\u5408\u8ba1\u91d1\u989d|\u603b\u91d1\u989d)[^0-9A-Z]{0,120}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
     /(?:\u4ef7\u7a0e\u5408\u8ba1|\u5408\u8ba1)[^0-9A-Z]{0,40}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
@@ -496,6 +501,27 @@ function detectAmount(text) {
   ];
   const fallback = collectAmounts(compact, fallbackPatterns);
   return fallback.length ? Math.max(...fallback) : null;
+}
+
+
+function detectDidiTripAmount(compactText) {
+  if (!isDidiTripTable(compactText)) return null;
+  const patterns = [
+    /\u5171\d+\u7b14\u884c\u7a0b[\uff0c,]?\u5408\u8ba1([0-9]+(?:\.[0-9]{1,2})?)\u5143/,
+    /\u5408\u8ba1([0-9]+(?:\.[0-9]{1,2})?)\u5143/,
+  ];
+  for (const pattern of patterns) {
+    const match = compactText.match(pattern);
+    if (match) {
+      const value = Number(match[1]);
+      if (isReasonableAmount(value, match[1])) return value;
+    }
+  }
+  return null;
+}
+
+function isDidiTripTable(text) {
+  return /\u6ef4\u6ef4\u51fa\u884c[\s\S]{0,20}\u884c\u7a0b\u5355|DIDI\s*TRAVEL|\u5171\d+\u7b14\u884c\u7a0b/.test(text);
 }
 
 function collectAmounts(text, patterns) {
@@ -627,9 +653,10 @@ function cleanPlace(value) {
 function validateInvoice(record) {
   const issues = [];
   if (record.amount == null) issues.push({ level: "error", message: "\u672a\u8bc6\u522b\u5230\u53d1\u7968\u91d1\u989d\u3002" });
+  if (isDidiTripTable(record.text)) issues.push({ level: "info", message: `\u8fd9\u662f\u4e00\u5f20\u6ef4\u6ef4\u51fa\u884c\u884c\u7a0b\u5355\uff0c\u4e0d\u662f\u53d1\u7968\uff1b\u53ef\u6309\u6253\u8f66\u8d39\u7528\u6c47\u603b\uff0c\u91d1\u989d ${formatAmount(record.amount)}\u3002` });
   if (record.category === C.unknown) issues.push({ level: "warning", message: "\u672a\u80fd\u5224\u65ad\u53d1\u7968\u7c7b\u578b\uff0c\u8bf7\u4eba\u5de5\u786e\u8ba4\u3002" });
   if (!record.invoiceDate) issues.push({ level: "warning", message: "\u672a\u8bc6\u522b\u5230\u53d1\u7968\u65e5\u671f\u3002" });
-  if (record.expenseType === C.travel && record.category !== C.traffic && record.tripLegs.length === 0) issues.push({ level: "warning", message: "\u5dee\u65c5\u7c7b\u53d1\u7968\u672a\u8bc6\u522b\u5230\u5b8c\u6574\u51fa\u53d1\u5730/\u76ee\u7684\u5730\u3002" });
+  if (record.expenseType === C.travel && ![C.traffic, C.taxi].includes(record.category) && record.tripLegs.length === 0) issues.push({ level: "warning", message: "\u5dee\u65c5\u7c7b\u53d1\u7968\u672a\u8bc6\u522b\u5230\u5b8c\u6574\u51fa\u53d1\u5730/\u76ee\u7684\u5730\u3002" });
   if (hasSuspiciousInvoiceKeyword(record.text)) issues.push({ level: "warning", message: "\u51fa\u73b0\u4f5c\u5e9f/\u51b2\u7ea2/\u9000\u7968\u7b49\u5173\u952e\u8bcd\uff0c\u8bf7\u786e\u8ba4\u662f\u5426\u53ef\u62a5\u9500\u3002" });
   const title = getLineValue(record.text, "\u8d2d\u4e70\u65b9") || getLineValue(record.text, "\u62ac\u5934");
   const taxId = getLineValue(record.text, "\u7eb3\u7a0e\u4eba\u8bc6\u522b\u53f7") || getLineValue(record.text, "\u7edf\u4e00\u793e\u4f1a\u4fe1\u7528\u4ee3\u7801");
@@ -668,7 +695,7 @@ function formatAmount(amount) {
 function render() {
   totalAmount.textContent = `${sumAmount(records).toFixed(2)} ${C.yuan}`;
   invoiceCount.textContent = records.length;
-  issueCount.textContent = records.reduce((total, record) => total + record.issues.length, 0);
+  issueCount.textContent = records.reduce((total, record) => total + record.issues.filter(issue => issue.level !== "info").length, 0);
   tripSummary.textContent = buildTripSummary(records);
   if (!records.length) {
     results.className = "results empty";
