@@ -96,6 +96,15 @@ exportJson.addEventListener("click", () => {
   download("invoice-summary.json", payload, "application/json");
 });
 
+results.addEventListener("click", event => {
+  const button = event.target instanceof Element ? event.target.closest("[data-delete-index]") : null;
+  if (!button) return;
+  const index = Number(button.dataset.deleteIndex);
+  if (!Number.isInteger(index) || !records[index]) return;
+  records.splice(index, 1);
+  render();
+});
+
 async function handleFiles(files) {
   for (const file of files) {
     try {
@@ -229,12 +238,19 @@ function buildPdfSignalText(text) {
   const smallCurrencyAmounts = [...text.matchAll(/[\uffe5\u00a5]\s*([0-9]{1,6}(?:\.[0-9]{1,2})?)/g)]
     .map(match => Number(match[1]))
     .filter(value => Number.isFinite(value) && value > 0 && value <= 10000);
-  if (smallCurrencyAmounts.some(value => Math.abs(value - 11) < 0.001)) {
+  const tollSignalAmount = selectTollSignalAmount(smallCurrencyAmounts);
+  if (tollSignalAmount != null) {
     lines.push("\u901a\u884c\u8d39");
     lines.push("\u9879\u76ee\u540d\u79f0 \u901a\u884c\u8d39");
-    lines.push("\u4ef7\u7a0e\u5408\u8ba1\u5c0f\u5199 CNY11.00");
+    lines.push(`\u4ef7\u7a0e\u5408\u8ba1\u5c0f\u5199 CNY${tollSignalAmount.toFixed(2)}`);
   }
   return lines.join("\n");
+}
+
+function selectTollSignalAmount(amounts) {
+  if (!amounts.length) return null;
+  const likelyTollAmounts = amounts.filter(value => value >= 1 && value <= 500);
+  return likelyTollAmounts.length ? Math.max(...likelyTollAmounts) : null;
 }
 
 function extractPdfMetadataDate(text) {
@@ -529,18 +545,33 @@ function isDidiTripTable(text) {
 
 function detectTollAmount(compactText) {
   if (!isTollInvoice(compactText)) return null;
-  const labeledPatterns = [
-    /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u4ef7\u7a0e\u5408\u8ba1|\u5c0f\u5199|\u5408\u8ba1\u91d1\u989d|\u91d1\u989d\u5408\u8ba1|\u901a\u884c\u8d39\u5408\u8ba1|\u5408\u8ba1)[^0-9A-Z]{0,80}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
-    /(?:\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39)[^0-9A-Z]{0,120}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
+
+  const strongLabelPatterns = [
+    /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u4ef7\u7a0e\u5408\u8ba1|\u5c0f\u5199|\u5408\u8ba1\u91d1\u989d|\u91d1\u989d\u5408\u8ba1|\u901a\u884c\u8d39\u5408\u8ba1|\u5408\u8ba1|\u91d1\u989d)[^0-9A-Z]{0,80}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]{1,5}(?:\.[0-9]{1,2})?)/gi,
   ];
-  const labeled = collectAmounts(compactText, labeledPatterns);
-  if (labeled.length) return Math.max(...labeled);
+  const strongLabelAmounts = collectAmounts(compactText, strongLabelPatterns).filter(value => value <= 10000);
+  if (strongLabelAmounts.length) return Math.max(...strongLabelAmounts);
 
   const currencyValues = collectAmounts(compactText, [
     /(?:CNY|RMB|\u4eba\u6c11\u5e01)([0-9]{1,5}(?:\.[0-9]{1,2})?)/gi,
     /([0-9]{1,5}(?:\.[0-9]{1,2})?)\u5143/gi,
-  ]);
-  return currencyValues.length ? Math.max(...currencyValues) : null;
+  ]).filter(value => value <= 10000);
+  if (currencyValues.length) return Math.max(...currencyValues);
+
+  const tollLabelAmounts = collectAmounts(compactText, [
+    /(?:\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u6536\u8d39)[^0-9]{0,80}([0-9]{1,4}(?:\.[0-9]{1,2})?)/gi,
+  ]).filter(value => value <= 500);
+  if (tollLabelAmounts.length) return Math.max(...tollLabelAmounts);
+
+  const amountSearchText = compactText
+    .replace(/\d{4}[\/-]\d{1,2}[\/-]\d{1,2}/g, "")
+    .replace(/\d{4}\u5e74\d{1,2}\u6708\d{1,2}[\u65e5\u53f7]?/g, "")
+    .replace(/\d{1,2}\u6708\d{1,2}[\u65e5\u53f7]?/g, "")
+    .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, "");
+  const decimalAmounts = collectAmounts(amountSearchText, [
+    /(?:^|[^0-9])([0-9]{1,4}\.[0-9]{1,2})(?:[^0-9]|$)/g,
+  ]).filter(value => value >= 1 && value <= 5000);
+  return decimalAmounts.length ? Math.max(...decimalAmounts) : null;
 }
 
 function isTollInvoice(text) {
@@ -770,15 +801,18 @@ function render() {
     return;
   }
   results.className = "results";
-  results.innerHTML = records.map(renderRecord).join("");
+  results.innerHTML = records.map((record, index) => renderRecord(record, index)).join("");
 }
 
-function renderRecord(record) {
+function renderRecord(record, index) {
   const trip = record.tripLegs.length ? record.tripLegs.map(leg => `${leg.date || record.invoiceDate || C.dateUnknown} ${leg.origin || "?"}->${leg.destination || "?"}`).join("\uff1b") : "-";
   const issues = record.issues.length ? record.issues.map(issue => `<li class="${issue.level}">${escapeHtml(issue.message)}</li>`).join("") : `<li class="ok">${C.ok}</li>`;
   return `<article class="result-card">
     <div>
-      <h3>${escapeHtml(record.fileName)}</h3>
+      <div class="result-head">
+        <h3>${escapeHtml(record.fileName)}</h3>
+        <button class="delete-record" type="button" data-delete-index="${index}" aria-label="\u5220\u9664${escapeHtml(record.fileName)}">\u5220\u9664</button>
+      </div>
       <div class="suggested-name">${escapeHtml(record.suggestedName)}</div>
       <div class="meta">
         <div><small>\u59d3\u540d</small>${escapeHtml(record.personName || "-")}</div>
