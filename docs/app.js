@@ -506,7 +506,7 @@ function detectAmount(text) {
   const didiAmount = detectDidiTripAmount(compact);
   if (didiAmount != null) return didiAmount;
   const tollAmount = detectTollAmount(compact);
-  if (tollAmount != null) return tollAmount;
+  if (isTollInvoice(compact)) return tollAmount;
   const preferredPatterns = [
     /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u5c0f\u5199|\u7968\u4ef7|\u5e94\u4ed8\u91d1\u989d|\u5b9e\u4ed8\u91d1\u989d|\u5408\u8ba1\u91d1\u989d|\u603b\u91d1\u989d)[^0-9A-Z]{0,120}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
     /(?:\u4ef7\u7a0e\u5408\u8ba1|\u5408\u8ba1)[^0-9A-Z]{0,40}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]+(?:\.[0-9]{1,2})?)/gi,
@@ -549,13 +549,13 @@ function detectTollAmount(compactText) {
   const strongLabelPatterns = [
     /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u4ef7\u7a0e\u5408\u8ba1|\u5c0f\u5199|\u5408\u8ba1\u91d1\u989d|\u91d1\u989d\u5408\u8ba1|\u901a\u884c\u8d39\u5408\u8ba1|\u5408\u8ba1|\u91d1\u989d)[^0-9A-Z]{0,80}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]{1,5}(?:\.[0-9]{1,2})?)/gi,
   ];
-  const strongLabelAmounts = collectAmounts(compactText, strongLabelPatterns).filter(value => value <= 10000);
+  const strongLabelAmounts = collectAmounts(compactText, strongLabelPatterns).filter(isLikelyTollAmount);
   if (strongLabelAmounts.length) return Math.max(...strongLabelAmounts);
 
   const currencyValues = collectAmounts(compactText, [
     /(?:CNY|RMB|\u4eba\u6c11\u5e01)([0-9]{1,5}(?:\.[0-9]{1,2})?)/gi,
     /([0-9]{1,5}(?:\.[0-9]{1,2})?)\u5143/gi,
-  ]).filter(value => value <= 10000);
+  ]).filter(isLikelyTollAmount);
   if (currencyValues.length) return Math.max(...currencyValues);
 
   const tollLabelAmounts = collectAmounts(compactText, [
@@ -570,8 +570,12 @@ function detectTollAmount(compactText) {
     .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, "");
   const decimalAmounts = collectAmounts(amountSearchText, [
     /(?:^|[^0-9])([0-9]{1,4}\.[0-9]{1,2})(?:[^0-9]|$)/g,
-  ]).filter(value => value >= 1 && value <= 5000);
+  ]).filter(isLikelyTollAmount);
   return decimalAmounts.length ? Math.max(...decimalAmounts) : null;
+}
+
+function isLikelyTollAmount(value) {
+  return Number.isFinite(value) && value >= 1 && value <= 500 && !/^20\d{2}$/.test(String(Math.trunc(value)));
 }
 
 function isTollInvoice(text) {
