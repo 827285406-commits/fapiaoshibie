@@ -27,7 +27,7 @@ const C = {
   pdfNoText: "PDF \u672a\u63d0\u53d6\u5230\u53ef\u5206\u6790\u6587\u5b57\uff0c\u53ef\u80fd\u662f\u626b\u63cf\u56fe\u7247\u578b PDF\uff0c\u8bf7\u5148 OCR \u540e\u518d\u4e0a\u4f20\u3002",
   pdfLoadError: "PDF \u89e3\u6790\u7ec4\u4ef6\u672a\u52a0\u8f7d\uff0c\u8bf7\u5237\u65b0\u9875\u9762\u6216\u68c0\u67e5\u7f51\u7edc\u540e\u91cd\u8bd5\u3002",
   ocrLoadError: "OCR \u7ec4\u4ef6\u672a\u52a0\u8f7d\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u540e\u5237\u65b0\u9875\u9762\u91cd\u8bd5\u3002",
-  ocrStarting: "\u672a\u63d0\u53d6\u5230 PDF \u5185\u7f6e\u6587\u5b57\uff0c\u6b63\u5728\u542f\u52a8 OCR \u8bc6\u522b\u626b\u63cf\u9875\u9762...",
+  ocrStarting: "PDF \u5185\u7f6e\u6587\u5b57\u4e0d\u5b8c\u6574\uff0c\u6b63\u5728 OCR\u3002\u9996\u6b21\u9700\u8981\u4e0b\u8f7d\u7ea6 20MB \u4e2d\u6587\u8bc6\u522b\u6a21\u578b\uff0c\u8bf7\u7a0d\u7b49...",
   ocrPage: "\u6b63\u5728 OCR \u8bc6\u522b PDF \u7b2c",
   ocrPageSuffix: "\u9875...",
 };
@@ -150,12 +150,12 @@ async function extractPdfOcrText(pdf) {
   if (!window.Tesseract) throw new Error(C.ocrLoadError);
   const worker = await window.Tesseract.createWorker({
     logger: message => updateOcrStatus(message),
-    langPath: "https://tessdata.projectnaptha.com/4.0.0",
+    langPath: "https://cdn.jsdelivr.net/npm/@tesseract.js-data/chi_sim@1.0.0/4.0.0",
   });
   const pages = [];
   try {
-    await worker.loadLanguage("chi_sim+eng");
-    await worker.initialize("chi_sim+eng");
+    await worker.loadLanguage("chi_sim");
+    await worker.initialize("chi_sim");
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       tripSummary.textContent = `${C.ocrPage}${pageNumber}/${pdf.numPages}${C.ocrPageSuffix}`;
       const page = await pdf.getPage(pageNumber);
@@ -185,7 +185,14 @@ async function renderPdfPageToCanvas(page) {
 function updateOcrStatus(message) {
   if (!message || !message.status) return;
   const progress = typeof message.progress === "number" ? ` ${Math.round(message.progress * 100)}%` : "";
-  tripSummary.textContent = `${message.status}${progress}`;
+  const statusMap = {
+    "loading language traineddata": "正在下载中文 OCR 识别模型，首次加载会比较慢",
+    "loaded language traineddata": "中文 OCR 识别模型已下载",
+    "initializing api": "正在初始化 OCR 识别引擎",
+    "initialized api": "OCR 识别引擎已准备好",
+    "recognizing text": "正在识别 PDF 页面文字",
+  };
+  tripSummary.textContent = `${statusMap[message.status] || message.status}${progress}`;
 }
 
 function buildFileErrorRecord(fileName, message) {
