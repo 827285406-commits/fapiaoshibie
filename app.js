@@ -119,9 +119,21 @@ async function extractPdfText(file) {
   const buffer = await file.arrayBuffer();
   const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
   const embeddedText = await extractPdfEmbeddedText(pdf);
-  if (embeddedText.length >= 20) return embeddedText;
+  if (isPdfTextSufficient(embeddedText)) return embeddedText;
   tripSummary.textContent = C.ocrStarting;
-  return extractPdfOcrText(pdf);
+  const ocrText = await extractPdfOcrText(pdf);
+  return `${embeddedText}
+${ocrText}`.trim();
+}
+
+function isPdfTextSufficient(text) {
+  if (!text || text.trim().length < 20) return false;
+  const normalized = normalizeInvoiceText(text);
+  const [, expenseType] = detectCategory(normalized);
+  const hasAmount = detectAmount(normalized) != null;
+  const hasDate = Boolean(normalizeDate(detectFirst([/(\d{4}\s*[年\/-]\s*\d{1,2}\s*[月\/-]\s*\d{1,2}\s*日?)/, /(\d{1,2}\s*月\s*\d{1,2}\s*日)/], normalized)));
+  const hasRoute = expenseType !== C.travel || detectTripLegs(normalized).length > 0;
+  return hasAmount && hasDate && hasRoute;
 }
 
 async function extractPdfEmbeddedText(pdf) {
@@ -314,11 +326,29 @@ function detectTripLegs(text) {
   }
   if (legs.length) return legs;
 
+  const trainLeg = detectTrainStationRoute(text);
+  if (trainLeg) return [trainLeg];
+
   const fromToLeg = detectFromToRoute(text);
   if (fromToLeg) return [fromToLeg];
 
   const route = text.match(/(?:\u51fa\u53d1\u5730|\u59cb\u53d1|\u8d77\u70b9)[:\uff1a\s]*([\u4e00-\u9fa5A-Za-z]{2,30}).{0,40}(?:\u76ee\u7684\u5730|\u5230\u8fbe|\u7ec8\u70b9)[:\uff1a\s]*([\u4e00-\u9fa5A-Za-z]{2,30})/);
   return route ? [{ date: "", origin: cleanPlace(route[1]), destination: cleanPlace(route[2]), transport: "" }] : [];
+}
+
+function detectTrainStationRoute(text) {
+  const match = text.match(/([\u4e00-\u9fa5]{2,12})\s*\u7ad9[\s\S]{0,120}\b[GDCKZ]\d{2,5}\b[\s\S]{0,120}([\u4e00-\u9fa5]{2,12})\s*\u7ad9/);
+  if (!match) return null;
+  return {
+    date: normalizeDate(detectFirst([/(\d{4}\s*[\u5e74\/-]\s*\d{1,2}\s*[\u6708\/-]\s*\d{1,2}\s*\u65e5?)/, /(\d{1,2}\s*\u6708\s*\d{1,2}\s*\u65e5)/], text)),
+    origin: cleanStationName(match[1]),
+    destination: cleanStationName(match[2]),
+    transport: C.train,
+  };
+}
+
+function cleanStationName(value) {
+  return value.replace(/^(?:\u7535\u5b50\u53d1\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u53d1\u7968\u53f7\u7801)+/, "").trim();
 }
 
 function detectFromToRoute(text) {
