@@ -445,6 +445,7 @@ function buildFileErrorRecord(fileName, message) {
     expenseType: C.uncategorized,
     amount: null,
     personName: "",
+    invoiceTitle: "",
     text: "",
     invoiceDate: "",
     invoiceNumber: "",
@@ -459,12 +460,13 @@ function analyzeInvoice(fileName, text) {
   const amount = detectAmount(normalizedText);
   const itemName = detectItemName(normalizedText);
   const personName = detectPersonName(normalizedText);
+  const invoiceTitle = detectInvoiceTitle(normalizedText);
   const invoiceDate = detectInvoiceDate(normalizedText);
   const invoiceNumber = detectFirst([/(?:\u53d1\u7968\u53f7\u7801|\u7968\u636e\u53f7\u7801|\u7535\u5b50\u5ba2\u7968\u53f7\u7801|No\.?|NO\.?)[:\uff1a\s]*([A-Z0-9-]{6,32})/i], normalizedText);
   const tripLegs = detectTripLegs(normalizedText).map(leg => ({ ...leg, transport: leg.transport || (expenseType === C.travel ? category : "") }));
-  const issues = validateInvoice({ text: normalizedText, category, expenseType, amount, invoiceDate, tripLegs });
+  const issues = validateInvoice({ text: normalizedText, category, expenseType, amount, invoiceDate, tripLegs, invoiceTitle });
   const suggestedName = buildSuggestedName({ category, expenseType, amount, personName, invoiceDate, fileName });
-  return { fileName, suggestedName, category, expenseType, amount, itemName, personName, invoiceDate, invoiceNumber, tripLegs, issues, text: normalizedText };
+  return { fileName, suggestedName, category, expenseType, amount, itemName, personName, invoiceTitle, invoiceDate, invoiceNumber, tripLegs, issues, text: normalizedText };
 }
 
 function detectCategory(text) {
@@ -604,6 +606,32 @@ function isReasonableAmount(value, rawValue) {
   if (!Number.isFinite(value) || value <= 0 || value > 1000000) return false;
   const digits = String(rawValue).replace(/\D/g, "");
   return digits.length <= 9;
+}
+
+function detectInvoiceTitle(text) {
+  const direct = detectFirst([
+    /(?:\u8d2d\u4e70\u65b9\u540d\u79f0|\u8d2d\u65b9\u540d\u79f0|\u8d2d\u4e70\u65b9|\u8d2d\u65b9|\u53d1\u7968\u62ac\u5934|\u62ac\u5934|\u4ed8\u6b3e\u65b9|\u5ba2\u6237\u540d\u79f0|\u5355\u4f4d\u540d\u79f0)[:\uff1a\s]*([^\n]{1,80})/,
+  ], text);
+  const cleaned = cleanInvoiceTitle(direct);
+  if (cleaned) return cleaned;
+
+  const compact = text.replace(/\s+/g, "");
+  const compactMatch = compact.match(/(?:\u8d2d\u4e70\u65b9\u540d\u79f0|\u8d2d\u65b9\u540d\u79f0|\u8d2d\u4e70\u65b9|\u8d2d\u65b9|\u53d1\u7968\u62ac\u5934|\u62ac\u5934|\u4ed8\u6b3e\u65b9|\u5ba2\u6237\u540d\u79f0|\u5355\u4f4d\u540d\u79f0)[:\uff1a]?(.{1,80}?)(?:\u7eb3\u7a0e\u4eba\u8bc6\u522b\u53f7|\u7edf\u4e00\u793e\u4f1a\u4fe1\u7528\u4ee3\u7801|\u5730\u5740|\u7535\u8bdd|\u5f00\u6237\u884c|\u8d26\u53f7|\u9500\u552e\u65b9|\u5356\u65b9|\u9879\u76ee|\u5408\u8ba1|$)/);
+  const compactTitle = cleanInvoiceTitle(compactMatch && compactMatch[1]);
+  if (compactTitle) return compactTitle;
+
+  return /\u4e2a\u4eba(?:\u62ac\u5934|\u53d1\u7968|\u652f\u4ed8|\u8d2d\u4e70)?|(?:\u62ac\u5934|\u8d2d\u4e70\u65b9)[:\uff1a\s]*\u4e2a\u4eba/.test(text) ? "\u4e2a\u4eba" : "";
+}
+
+function cleanInvoiceTitle(value) {
+  if (!value) return "";
+  const title = String(value)
+    .replace(/^[?:\s]+/, "")
+    .replace(/(?:\u7eb3\u7a0e\u4eba\u8bc6\u522b\u53f7|\u7edf\u4e00\u793e\u4f1a\u4fe1\u7528\u4ee3\u7801|\u5730\u5740|\u7535\u8bdd|\u5f00\u6237\u884c|\u8d26\u53f7|\u9500\u552e\u65b9|\u5356\u65b9|\u9879\u76ee|\u5408\u8ba1).*$/, "")
+    .replace(/[\uff0c,\u3002\uff1b;].*$/, "")
+    .trim();
+  if (!title || /^(?:-|\u65e0|\u672a\u8bc6\u522b)$/.test(title)) return "";
+  return title.slice(0, 60);
 }
 
 function detectPersonName(text) {
@@ -768,7 +796,7 @@ function validateInvoice(record) {
   if (!record.invoiceDate) issues.push({ level: "warning", message: "\u672a\u8bc6\u522b\u5230\u53d1\u7968\u65e5\u671f\u3002" });
   if (record.expenseType === C.travel && ![C.traffic, C.taxi].includes(record.category) && record.tripLegs.length === 0) issues.push({ level: "warning", message: "\u5dee\u65c5\u7c7b\u53d1\u7968\u672a\u8bc6\u522b\u5230\u5b8c\u6574\u51fa\u53d1\u5730/\u76ee\u7684\u5730\u3002" });
   if (hasSuspiciousInvoiceKeyword(record.text)) issues.push({ level: "warning", message: "\u51fa\u73b0\u4f5c\u5e9f/\u51b2\u7ea2/\u9000\u7968\u7b49\u5173\u952e\u8bcd\uff0c\u8bf7\u786e\u8ba4\u662f\u5426\u53ef\u62a5\u9500\u3002" });
-  const title = getLineValue(record.text, "\u8d2d\u4e70\u65b9") || getLineValue(record.text, "\u62ac\u5934");
+  const title = record.invoiceTitle || getLineValue(record.text, "\u8d2d\u4e70\u65b9") || getLineValue(record.text, "\u62ac\u5934");
   const taxId = getLineValue(record.text, "\u7eb3\u7a0e\u4eba\u8bc6\u522b\u53f7") || getLineValue(record.text, "\u7edf\u4e00\u793e\u4f1a\u4fe1\u7528\u4ee3\u7801");
   if (["", "\u4e2a\u4eba", "\u65e0"].includes(title ?? "company-ok") && !taxId) issues.push({ level: "warning", message: "\u8d2d\u4e70\u65b9\u62ac\u5934\u6216\u7eb3\u7a0e\u4eba\u8bc6\u522b\u53f7\u53ef\u80fd\u7f3a\u5931\u3002" });
   return issues;
@@ -829,6 +857,7 @@ function renderRecord(record, index) {
       <div class="suggested-name">${escapeHtml(record.suggestedName)}</div>
       <div class="meta">
         <div><small>\u59d3\u540d</small>${escapeHtml(record.personName || "-")}</div>
+        <div><small>\u5f00\u7968\u62ac\u5934</small>${escapeHtml(record.invoiceTitle || "-")}</div>
         <div><small>\u7c7b\u578b</small>${escapeHtml(record.category)} / ${escapeHtml(record.expenseType)}</div>
         <div><small>\u91d1\u989d</small>${formatAmount(record.amount)}</div>
         <div><small>\u9879\u76ee</small>${escapeHtml(record.itemName || "-")}</div>
@@ -866,13 +895,14 @@ function renderSummaryTable(items) {
     return "<tr>" +
       "<td>" + escapeHtml(tableRecord.name) + "</td>" +
       "<td>" + escapeHtml(tableRecord.amount) + "</td>" +
+      "<td>" + escapeHtml(tableRecord.title) + "</td>" +
       "<td>" + escapeHtml(tableRecord.type) + "</td>" +
       "<td>" + escapeHtml(tableRecord.date) + "</td>" +
       "<td>" + escapeHtml(tableRecord.trip) + "</td>" +
       "</tr>";
   }).join("");
   summaryTable.innerHTML = "<table>" +
-    "<thead><tr><th>\u53d1\u7968\u540d\u79f0</th><th>\u53d1\u7968\u91d1\u989d</th><th>\u53d1\u7968\u7c7b\u578b</th><th>\u65f6\u95f4</th><th>\u884c\u7a0b</th></tr></thead>" +
+    "<thead><tr><th>\u53d1\u7968\u540d\u79f0</th><th>\u53d1\u7968\u91d1\u989d</th><th>\u5f00\u7968\u62ac\u5934</th><th>\u53d1\u7968\u7c7b\u578b</th><th>\u65f6\u95f4</th><th>\u884c\u7a0b</th></tr></thead>" +
     "<tbody>" + rows + "</tbody>" +
     "</table>";
 }
@@ -882,6 +912,7 @@ function buildTableRecord(record) {
   return {
     name: record.suggestedName || record.fileName || "-",
     amount: formatAmount(record.amount) + (itineraryOnly ? "\uff08\u4e0d\u8ba1\u5165\u5408\u8ba1\uff09" : ""),
+    title: record.invoiceTitle || "-",
     type: record.category || C.unknown,
     date: getRecordDate(record),
     trip: formatTrip(record),
@@ -889,10 +920,10 @@ function buildTableRecord(record) {
 }
 
 function buildSummaryCsv(items) {
-  const headers = ["\u53d1\u7968\u540d\u79f0", "\u53d1\u7968\u91d1\u989d", "\u53d1\u7968\u7c7b\u578b", "\u65f6\u95f4", "\u884c\u7a0b"];
+  const headers = ["\u53d1\u7968\u540d\u79f0", "\u53d1\u7968\u91d1\u989d", "\u5f00\u7968\u62ac\u5934", "\u53d1\u7968\u7c7b\u578b", "\u65f6\u95f4", "\u884c\u7a0b"];
   const rows = items.map(record => {
     const tableRecord = buildTableRecord(record);
-    return [tableRecord.name, tableRecord.amount, tableRecord.type, tableRecord.date, tableRecord.trip];
+    return [tableRecord.name, tableRecord.amount, tableRecord.title, tableRecord.type, tableRecord.date, tableRecord.trip];
   });
   return "\ufeff" + [headers, ...rows].map(row => row.map(escapeCsvCell).join(",")).join("\n");
 }
