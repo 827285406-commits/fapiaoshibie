@@ -567,6 +567,9 @@ function isDidiTripTable(text) {
 function detectTollAmount(compactText) {
   if (!isTollInvoice(compactText)) return null;
 
+  const fileNameAmount = detectTollFileNameAmount(compactText);
+  if (fileNameAmount != null) return fileNameAmount;
+
   const strongLabelPatterns = [
     /(?:\u4ef7\u7a0e\u5408\u8ba1.*?\u5c0f\u5199|\u4ef7\u7a0e\u5408\u8ba1|\u5c0f\u5199|\u5408\u8ba1\u91d1\u989d|\u91d1\u989d\u5408\u8ba1|\u901a\u884c\u8d39\u5408\u8ba1|\u5408\u8ba1|\u91d1\u989d)[^0-9A-Z]{0,80}(?:CNY|RMB|\u4eba\u6c11\u5e01)?([0-9]{1,5}(?:\.[0-9]{1,2})?)/gi,
   ];
@@ -593,6 +596,20 @@ function detectTollAmount(compactText) {
     /(?:^|[^0-9])([0-9]{1,4}\.[0-9]{1,2})(?:[^0-9]|$)/g,
   ]).filter(isLikelyTollAmount);
   return decimalAmounts.length ? Math.max(...decimalAmounts) : null;
+}
+
+function detectTollFileNameAmount(compactText) {
+  const patterns = [
+    /(?:\u9ad8\u901f|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|ETC)[^0-9]{0,12}([0-9]{1,3}(?:\.[0-9]{1,2})?)(?:\u5143)?\.(?:pdf|PDF|jpg|jpeg|png|txt|md)\b/i,
+    /([0-9]{1,3}(?:\.[0-9]{1,2})?)(?:\u5143)?[^0-9]{0,12}(?:\u9ad8\u901f|\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|ETC)[^.]{0,20}\.(?:pdf|PDF|jpg|jpeg|png|txt|md)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = compactText.match(pattern);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (isLikelyTollAmount(value)) return value;
+  }
+  return null;
 }
 
 function isLikelyTollAmount(value) {
