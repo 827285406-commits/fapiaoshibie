@@ -34,7 +34,7 @@ const C = {
 };
 
 const categoryRules = [
-  [/\u6ef4\u6ef4\u51fa\u884c|DIDI\s*TRAVEL|\u6ef4\u6ef4\u5feb\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u7f51\u7ea6\u8f66/i, C.taxi, C.travel],
+  [/\u6ef4\u6ef4\u51fa\u884c|DIDI\s*TRAVEL|\u9ad8\u5fb7\u6253\u8f66|\u9ad8\u5fb7|\u53ca\u65f6\u7528\u8f66|\u6ef4\u6ef4\u5feb\u8f66|\u6ef4\u6ef4|\u6253\u8f66|\u7f51\u7ea6\u8f66|\u7535\u5b50\u884c\u7a0b\u5355/i, C.taxi, C.travel],
   [/\u673a\u7968|\u822a\u7a7a|\u822a\u73ed|\u767b\u673a\u724c|air|flight|\u673a\u573a|\u56fd\u5185\u822a\u7a7a|\u822a\u7a7a\u8fd0\u8f93|\u673a\u573a\u5efa\u8bbe\u8d39|\u71c3\u6cb9\u9644\u52a0|\u822a\u6bb5|\u822a\u73ed\u53f7/i, C.flight, C.travel],
   [/\u706b\u8f66|\u9ad8\u94c1|\u52a8\u8f66|\u94c1\u8def|\u8f66\u7968|\u94c1\u8def\u7535\u5b50\u5ba2\u7968|\u5217\u8f66|\u8f66\u6b21|\u4e00\u7b49\u5ea7|\u4e8c\u7b49\u5ea7|\u5546\u52a1\u5ea7|\u897f\u5b89\u5317|\u7ef5\u9633|\b[GDCKZ]\d{2,5}\b/i, C.train, C.travel],
   [/\u51fa\u79df|\u5ba2\u8fd0|\u6c7d\u8f66\u7968|\u901a\u884c\u8d39|\u516c\u8def\u901a\u884c\u8d39|\u8fc7\u8def\u8d39|\u8def\u6865\u8d39|\u9ad8\u901f|\u9ad8\u901f\u516c\u8def|\u6536\u8d39\u7ad9|\u5ba2\u8f66|ETC/i, C.traffic, C.travel],
@@ -455,7 +455,7 @@ function buildFileErrorRecord(fileName, message) {
 }
 
 function analyzeInvoice(fileName, text) {
-  const normalizedText = normalizeInvoiceText(text);
+  const normalizedText = normalizeInvoiceText(`${fileName}\n${text}`);
   const [category, expenseType] = detectCategory(normalizedText);
   const amount = detectAmount(normalizedText);
   const itemName = detectItemName(normalizedText);
@@ -496,7 +496,7 @@ function normalizeDate(value) {
 }
 
 function detectItemName(text) {
-  if (isDidiTripTable(text)) return "\u6253\u8f66\u8d39\u7528";
+  if (isRideHailingTripSheet(text)) return "\u6253\u8f66\u8d39\u7528";
   if (isTollInvoice(text)) return "\u901a\u884c\u8d39";
   const starred = text.match(/\*([^\n*]{2,24})\*([^\n\s]{2,24})/);
   if (starred) return cleanItemName(`*${starred[1]}*${starred[2]}`);
@@ -512,8 +512,8 @@ function cleanItemName(value) {
 
 function detectAmount(text) {
   const compact = text.replace(/\s+/g, "");
-  const didiAmount = detectDidiTripAmount(compact);
-  if (didiAmount != null) return didiAmount;
+  const rideTripAmount = detectRideHailingTripAmount(compact);
+  if (rideTripAmount != null) return rideTripAmount;
   const tollAmount = detectTollAmount(compact);
   if (isTollInvoice(compact)) return tollAmount;
   const preferredPatterns = [
@@ -532,24 +532,36 @@ function detectAmount(text) {
 }
 
 
-function detectDidiTripAmount(compactText) {
-  if (!isDidiTripTable(compactText)) return null;
+function detectRideHailingTripAmount(compactText) {
+  if (!isRideHailingTripSheet(compactText)) return null;
   const patterns = [
-    /\u5171\d+\u7b14\u884c\u7a0b[\uff0c,]?\u5408\u8ba1([0-9]+(?:\.[0-9]{1,2})?)\u5143/,
-    /\u5408\u8ba1([0-9]+(?:\.[0-9]{1,2})?)\u5143/,
+    /[-\u3010\[]([0-9]{1,4}\.[0-9]{1,2})\u5143(?:[-\u3011\]])?/,
+    /(?:\u5408\u8ba1|\u603b\u8ba1|\u5b9e\u4ed8|\u652f\u4ed8|\u8d39\u7528|\u91d1\u989d)[^0-9]{0,40}([0-9]{1,4}\.[0-9]{1,2})\u5143?/,
+    /([0-9]{1,4}\.[0-9]{1,2})\u5143(?:[^0-9]|$)/,
+    /(?:\u5408\u8ba1|\u603b\u8ba1|\u5b9e\u4ed8|\u652f\u4ed8|\u8d39\u7528|\u91d1\u989d)[^0-9]{0,40}([0-9]{1,4})\u5143?/,
   ];
   for (const pattern of patterns) {
     const match = compactText.match(pattern);
-    if (match) {
-      const value = Number(match[1]);
-      if (isReasonableAmount(value, match[1])) return value;
-    }
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (isLikelyRideAmount(value)) return value;
   }
   return null;
 }
 
+function isLikelyRideAmount(value) {
+  return Number.isFinite(value) && value > 0 && value <= 1000;
+}
+
+function isRideHailingTripSheet(text) {
+  if (/\u822a\u7a7a|\u822a\u73ed|\u673a\u7968|\u5ba2\u7968|\u94c1\u8def|\u706b\u8f66|\u5217\u8f66/.test(text)) return false;
+  const rideSignal = /DIDI\s*TRAVEL|\u6ef4\u6ef4\u51fa\u884c|\u9ad8\u5fb7\u6253\u8f66|\u9ad8\u5fb7|\u53ca\u65f6\u7528\u8f66|\u6253\u8f66|\u7f51\u7ea6\u8f66|\u66f9\u64cd\u51fa\u884c|\u9996\u6c7d\u7ea6\u8f66|T3\u51fa\u884c|\u4eab\u9053\u51fa\u884c|\u82b1\u5c0f\u732a|\u9633\u5149\u51fa\u884c/.test(text);
+  const sheetSignal = /\u7535\u5b50\u884c\u7a0b\u5355|\u884c\u7a0b\u5355|\u5171?\d+\u4e2a\u884c\u7a0b|\u5171?\d+\u7b14\u884c\u7a0b/.test(text);
+  return rideSignal && sheetSignal;
+}
+
 function isDidiTripTable(text) {
-  return /\u6ef4\u6ef4\u51fa\u884c[\s\S]{0,20}\u884c\u7a0b\u5355|DIDI\s*TRAVEL|\u5171\d+\u7b14\u884c\u7a0b/.test(text);
+  return isRideHailingTripSheet(text);
 }
 
 function detectTollAmount(compactText) {
@@ -674,7 +686,7 @@ function detectTripLegs(text) {
   const legs = [];
   const tollLeg = detectTollRoute(text);
   if (tollLeg) return [tollLeg];
-  if (isDidiTripTable(text)) return [];
+  if (isRideHailingTripSheet(text)) return [];
 
   const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const routePattern = /(?:(\d{4}[\u5e74\/-]\d{1,2}[\u6708\/-]\d{1,2}\u65e5?|\d{1,2}\u6708\d{1,2}\u65e5).{0,20})?([\u4e00-\u9fa5A-Za-z]{2,30})\s*(?:\u81f3|\u5230|->|-)\s*([\u4e00-\u9fa5A-Za-z]{2,30})/;
@@ -791,7 +803,7 @@ function cleanPlace(value) {
 function validateInvoice(record) {
   const issues = [];
   if (record.amount == null) issues.push({ level: "error", message: "\u672a\u8bc6\u522b\u5230\u53d1\u7968\u91d1\u989d\u3002" });
-  if (isDidiTripTable(record.text)) issues.push({ level: "info", message: `\u8fd9\u662f\u4e00\u5f20\u6ef4\u6ef4\u51fa\u884c\u884c\u7a0b\u5355\uff0c\u4e0d\u662f\u53d1\u7968\uff1b\u53ef\u6309\u6253\u8f66\u8d39\u7528\u6c47\u603b\uff0c\u91d1\u989d ${formatAmount(record.amount)}\u3002` });
+  if (isRideHailingTripSheet(record.text)) issues.push({ level: "info", message: `\u8fd9\u662f\u4e00\u5f20\u6253\u8f66\u7535\u5b50\u884c\u7a0b\u5355\uff0c\u4e0d\u662f\u6b63\u5f0f\u53d1\u7968\uff1b\u91d1\u989d ${formatAmount(record.amount)} \u4ec5\u4f5c\u884c\u7a0b\u53c2\u8003\uff0c\u4e0d\u8ba1\u5165\u5408\u8ba1\u3002` });
   if (record.category === C.unknown) issues.push({ level: "warning", message: "\u672a\u80fd\u5224\u65ad\u53d1\u7968\u7c7b\u578b\uff0c\u8bf7\u4eba\u5de5\u786e\u8ba4\u3002" });
   if (!record.invoiceDate) issues.push({ level: "warning", message: "\u672a\u8bc6\u522b\u5230\u53d1\u7968\u65e5\u671f\u3002" });
   if (record.expenseType === C.travel && ![C.traffic, C.taxi].includes(record.category) && record.tripLegs.length === 0) issues.push({ level: "warning", message: "\u5dee\u65c5\u7c7b\u53d1\u7968\u672a\u8bc6\u522b\u5230\u5b8c\u6574\u51fa\u53d1\u5730/\u76ee\u7684\u5730\u3002" });
@@ -942,7 +954,7 @@ function formatTrip(record) {
 }
 
 function isItineraryOnlyRecord(record) {
-  return isDidiTripTable(record.text || "");
+  return isRideHailingTripSheet(record.text || "");
 }
 
 function sumAmount(items) {
